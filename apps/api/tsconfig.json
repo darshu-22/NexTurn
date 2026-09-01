@@ -1,0 +1,10 @@
+{
+  "extends": "@nexturn/config/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2022"
+  },
+  "include": ["src", "prisma"]
+}

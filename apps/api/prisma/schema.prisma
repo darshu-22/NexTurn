@@ -1,0 +1,105 @@
+// apps/api/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  status    String   @default("ACTIVE") // ACTIVE, SUSPENDED, INACTIVE
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users       User[]
+  queues      Queue[]
+  queueEntries QueueEntry[]
+  queueEvents QueueEvent[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  email        String?
+  phone        String?
+  passwordHash String?  @map("password_hash")
+  role         String   @default("USER") // PLATFORM_ADMIN, ORGANIZATION_ADMIN, QUEUE_OPERATOR, USER
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("users")
+}
+
+model Queue {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  status      String   @default("ACTIVE") // ACTIVE, PAUSED, CLOSED
+  joinEnabled Boolean  @default(true) @map("join_enabled")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  queueEntries QueueEntry[]
+  queueEvents  QueueEvent[]
+
+  @@map("queues")
+}
+
+model QueueEntry {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  queueId          String    @map("queue_id")
+  name             String
+  phone            String?
+  status           String    @default("WAITING") // WAITING, COMPLETED, CANCELLED
+  position         Int       @default(0)
+  sessionTokenHash String    @map("session_token_hash")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  completedAt      DateTime? @map("completed_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
+  queue  Queue        @relation(fields: [queueId], references: [id])
+  events QueueEvent[]
+
+  @@index([tenantId])
+  @@index([queueId, status])
+  @@index([queueId, position])
+  @@map("queue_entries")
+}
+
+model QueueEvent {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  queueId      String   @map("queue_id")
+  queueEntryId String?  @map("queue_entry_id")
+  eventType    String   @map("event_type") // QUEUE_JOINED, QUEUE_COMPLETED, QUEUE_CANCELLED, QUEUE_REMOVED, QUEUE_REORDERED
+  actorId      String?  @map("actor_id")
+  actorRole    String?  @map("actor_role")
+  payload      Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  queue      Queue       @relation(fields: [queueId], references: [id])
+  queueEntry QueueEntry? @relation(fields: [queueEntryId], references: [id])
+
+  @@index([tenantId])
+  @@index([queueId])
+  @@index([queueEntryId])
+  @@map("queue_events")
+}
+

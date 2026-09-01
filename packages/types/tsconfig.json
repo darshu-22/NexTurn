@@ -1,0 +1,8 @@
+{
+  "extends": "@nexturn/config/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "declaration": true
+  },
+  "include": ["src"]
+}
