@@ -32,6 +32,7 @@ export interface QueueEntry {
   position: number;
   createdAt: string;
   updatedAt: string;
+  serviceStartedAt?: string | null;
   completedAt?: string | null;
   cancelledAt?: string | null;
 }
@@ -57,4 +58,6 @@ export interface QueueStatusResponse {
   entry: QueueEntry;
   peopleAhead: number;
   queueName: string;
+  averageServiceDurationMinutes?: number | null;
+  estimatedWaitMinutes?: number | null;
 }

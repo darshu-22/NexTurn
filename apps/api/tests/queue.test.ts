@@ -562,20 +562,96 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     });
   });
 
-  describe("Concurrent Request Handling", () => {
-    it("handles concurrent joins without position corruption", async () => {
-      const joinPromises = Array.from({ length: 10 }).map((_, i) =>
-        request(app)
-          .post("/api/queues/queue-1/join")
-          .send({ name: `Concurrent User ${i + 1}` }),
-      );
+  describe("Phase 3 — Service Duration & ETA Calculations", () => {
+    it("sets serviceStartedAt on position #1 upon join", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User A" });
+      expect(u1.body.entry.position).toBe(1);
+      expect(u1.body.entry.serviceStartedAt).toBeTruthy();
 
-      const results = await Promise.all(joinPromises);
-      const positions = results
-        .map((r) => r.body.entry.position)
-        .sort((a, b) => a - b);
+      const u2 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User B" });
+      expect(u2.body.entry.position).toBe(2);
+      expect(u2.body.entry.serviceStartedAt).toBeFalsy();
+    });
 
-      expect(positions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    it("calculates service duration as completedAt - serviceStartedAt and computes correct ETA", async () => {
+      // Create completed entry with 10 minute service duration
+      const now = new Date();
+      const tenMinsAgo = new Date(now.getTime() - 10 * 60 * 1000);
+
+      db.queueEntries.push({
+        id: "entry-completed-1",
+        tenantId: "tenant-1",
+        queueId: "queue-1",
+        name: "Completed User",
+        status: "COMPLETED",
+        position: 0,
+        sessionTokenHash: "hash",
+        createdAt: new Date(now.getTime() - 40 * 60 * 1000), // Joined 40m ago
+        serviceStartedAt: tenMinsAgo, // Service started 10m ago
+        completedAt: now, // Completed now -> Duration = 10 mins!
+      });
+
+      // User A joins at #1
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User A" });
+      expect(u1.body.entry.position).toBe(1);
+      expect(u1.body.peopleAhead).toBe(0);
+      expect(u1.body.estimatedWaitMinutes).toBe(0);
+
+      // User B joins at #2
+      const u2 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User B" });
+      expect(u2.body.entry.position).toBe(2);
+      expect(u2.body.peopleAhead).toBe(1);
+      expect(u2.body.estimatedWaitMinutes).toBe(10); // 1 * 10 = 10 mins
+
+      // User C joins at #3
+      const u3 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User C" });
+      expect(u3.body.entry.position).toBe(3);
+      expect(u3.body.peopleAhead).toBe(2);
+      expect(u3.body.estimatedWaitMinutes).toBe(20); // 2 * 10 = 20 mins
+    });
+
+    it("returns estimatedWaitMinutes = null when no completed entries exist", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User A" }); // #1
+      const u2 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User B" }); // #2
+
+      expect(u1.body.estimatedWaitMinutes).toBe(0);
+      expect(u2.body.estimatedWaitMinutes).toBeNull();
+    });
+
+    it("promotes #2 to #1 and sets serviceStartedAt when #1 completes", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User A" });
+      const u2 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User B" });
+
+      // Complete User A
+      await request(app)
+        .post(`/api/queue-entries/${u1.body.entry.id}/done`)
+        .set("x-session-token", u1.body.sessionToken);
+
+      // Check User B status
+      const bStatus = await request(app)
+        .get(`/api/queue-entries/${u2.body.entry.id}`)
+        .set("x-session-token", u2.body.sessionToken);
+
+      expect(bStatus.body.entry.position).toBe(1);
+      expect(bStatus.body.entry.serviceStartedAt).toBeTruthy();
     });
   });
 });

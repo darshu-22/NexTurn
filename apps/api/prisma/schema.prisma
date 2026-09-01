@@ -69,6 +69,7 @@ model QueueEntry {
   sessionTokenHash String    @map("session_token_hash")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
+  serviceStartedAt DateTime? @map("service_started_at")
   completedAt      DateTime? @map("completed_at")
   cancelledAt      DateTime? @map("cancelled_at")
 

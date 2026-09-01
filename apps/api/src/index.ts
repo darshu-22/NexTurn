@@ -1,4 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
+import http from "http";
+import { Server as SocketIOServer } from "socket.io";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -16,6 +18,14 @@ import {
 dotenv.config();
 
 const app = express();
+const httpServer = http.createServer(app);
+export const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
+});
+
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET =
@@ -27,8 +37,8 @@ app.use(helmet());
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 100,
 });
 app.use("/api", limiter);
 
@@ -43,7 +53,259 @@ export function hashToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-// Custom Request interface to include user
+// Helper: Calculate Queue ETA and Average Service Duration
+export async function calculateQueueETA(
+  queueId: string,
+  position: number,
+  txClient: any = prisma,
+) {
+  const peopleAhead = Math.max(0, position - 1);
+
+  // Query completed entries with valid serviceStartedAt and completedAt
+  const completedEntries = await txClient.queueEntry.findMany({
+    where: {
+      queueId,
+      status: "COMPLETED",
+      serviceStartedAt: { not: null },
+      completedAt: { not: null },
+    },
+    select: { serviceStartedAt: true, completedAt: true },
+  });
+
+  if (completedEntries.length === 0) {
+    return {
+      averageServiceDurationMinutes: null,
+      estimatedWaitMinutes: position === 1 ? 0 : null,
+      peopleAhead,
+    };
+  }
+
+  const totalDurationMinutes = completedEntries.reduce(
+    (sum: number, e: any) => {
+      const start = new Date(e.serviceStartedAt).getTime();
+      const end = new Date(e.completedAt).getTime();
+      const durationInMinutes = (end - start) / (1000 * 60);
+      return sum + Math.max(0, durationInMinutes);
+    },
+    0,
+  );
+
+  const avgDuration = totalDurationMinutes / completedEntries.length;
+  const averageServiceDurationMinutes = Math.round(avgDuration * 10) / 10;
+
+  let estimatedWaitMinutes: number | null = null;
+  if (position === 1) {
+    estimatedWaitMinutes = 0;
+  } else {
+    estimatedWaitMinutes = Math.round(peopleAhead * avgDuration);
+  }
+
+  return {
+    averageServiceDurationMinutes,
+    estimatedWaitMinutes,
+    peopleAhead,
+  };
+}
+
+// Helper: Update front of queue serviceStartedAt timestamp
+export async function updateFrontOfQueueServiceStart(
+  queueId: string,
+  txClient: any = prisma,
+) {
+  const frontEntry = await txClient.queueEntry.findFirst({
+    where: { queueId, status: "WAITING", position: 1 },
+  });
+
+  if (frontEntry && !frontEntry.serviceStartedAt) {
+    await txClient.queueEntry.update({
+      where: { id: frontEntry.id },
+      data: { serviceStartedAt: new Date() },
+    });
+  }
+}
+
+// Real-Time Event Broadcasting Engine
+export async function broadcastQueueUpdate(queueId: string) {
+  if (!io) return;
+
+  try {
+    const queue = await prisma.queue.findUnique({ where: { id: queueId } });
+    if (!queue) return;
+
+    const activeEntries = await prisma.queueEntry.findMany({
+      where: { queueId, status: "WAITING" },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        queueId: true,
+        tenantId: true,
+        name: true,
+        phone: true,
+        status: true,
+        position: true,
+        createdAt: true,
+        serviceStartedAt: true,
+      },
+    });
+
+    // 1. Broadcast to Admin Room
+    io.to(`queue:admin:${queueId}`).emit("queue:admin_updated", {
+      queueId,
+      entries: activeEntries,
+      count: activeEntries.length,
+    });
+
+    // 2. Broadcast to Public Room / Individual Socket Rooms
+    for (const entry of activeEntries) {
+      const eta = await calculateQueueETA(queueId, entry.position);
+      io.to(`entry:${entry.id}`).emit("queue:status_updated", {
+        entry: {
+          id: entry.id,
+          queueId: entry.queueId,
+          name: entry.name,
+          phone: entry.phone,
+          status: entry.status,
+          position: entry.position,
+          createdAt: entry.createdAt,
+          serviceStartedAt: entry.serviceStartedAt,
+        },
+        peopleAhead: eta.peopleAhead,
+        queueName: queue.name,
+        averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+        estimatedWaitMinutes: eta.estimatedWaitMinutes,
+      });
+    }
+  } catch (err) {
+    console.error("Real-time broadcast error:", err);
+  }
+}
+
+// Socket.IO Connection & Room Security
+io.on("connection", (socket) => {
+  // Join Admin Room with JWT Verification & Tenant Isolation
+  socket.on("join_admin_room", async ({ queueId, token }) => {
+    try {
+      if (!token || !queueId) return;
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      if (!decoded || !decoded.tenantId) return;
+
+      const queue = await prisma.queue.findUnique({ where: { id: queueId } });
+      if (!queue || queue.tenantId !== decoded.tenantId) {
+        socket.emit("error", { message: "Cross-tenant access blocked" });
+        return;
+      }
+
+      socket.join(`queue:admin:${queueId}`);
+
+      const entries = await prisma.queueEntry.findMany({
+        where: { queueId, tenantId: decoded.tenantId, status: "WAITING" },
+        orderBy: { position: "asc" },
+      });
+      socket.emit("queue:admin_updated", {
+        queueId,
+        entries,
+        count: entries.length,
+      });
+    } catch (err) {
+      socket.emit("error", { message: "Unauthorized admin room join" });
+    }
+  });
+
+  // Join Public Room with Session Token Security
+  socket.on("join_public_room", async ({ entryId, sessionToken }) => {
+    try {
+      if (!entryId || !sessionToken) return;
+      const tokenHash = hashToken(sessionToken);
+
+      const entry = await prisma.queueEntry.findUnique({
+        where: { id: entryId },
+        include: { queue: { select: { name: true } } },
+      });
+
+      if (!entry || entry.sessionTokenHash !== tokenHash) {
+        socket.emit("error", { message: "Unauthorized entry access" });
+        return;
+      }
+
+      socket.join(`entry:${entry.id}`);
+
+      const eta = await calculateQueueETA(entry.queueId, entry.position);
+      socket.emit("queue:status_updated", {
+        entry: {
+          id: entry.id,
+          queueId: entry.queueId,
+          name: entry.name,
+          phone: entry.phone,
+          status: entry.status,
+          position: entry.position,
+          createdAt: entry.createdAt,
+          serviceStartedAt: entry.serviceStartedAt,
+        },
+        peopleAhead: eta.peopleAhead,
+        queueName: entry.queue.name,
+        averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+        estimatedWaitMinutes: eta.estimatedWaitMinutes,
+      });
+    } catch (err) {
+      socket.emit("error", { message: "Unauthorized public room join" });
+    }
+  });
+
+  // Reconnection State Resynchronization
+  socket.on(
+    "request_sync",
+    async ({ queueId, entryId, sessionToken, adminToken }) => {
+      if (adminToken && queueId) {
+        try {
+          const decoded = jwt.verify(adminToken, JWT_SECRET) as any;
+          const queue = await prisma.queue.findUnique({
+            where: { id: queueId },
+          });
+          if (queue && queue.tenantId === decoded.tenantId) {
+            const entries = await prisma.queueEntry.findMany({
+              where: { queueId, tenantId: decoded.tenantId, status: "WAITING" },
+              orderBy: { position: "asc" },
+            });
+            socket.emit("queue:admin_updated", {
+              queueId,
+              entries,
+              count: entries.length,
+            });
+          }
+        } catch (err) {}
+      } else if (entryId && sessionToken) {
+        try {
+          const tokenHash = hashToken(sessionToken);
+          const entry = await prisma.queueEntry.findUnique({
+            where: { id: entryId },
+            include: { queue: { select: { name: true } } },
+          });
+          if (entry && entry.sessionTokenHash === tokenHash) {
+            const eta = await calculateQueueETA(entry.queueId, entry.position);
+            socket.emit("queue:status_updated", {
+              entry: {
+                id: entry.id,
+                queueId: entry.queueId,
+                name: entry.name,
+                phone: entry.phone,
+                status: entry.status,
+                position: entry.position,
+                createdAt: entry.createdAt,
+                serviceStartedAt: entry.serviceStartedAt,
+              },
+              peopleAhead: eta.peopleAhead,
+              queueName: entry.queue.name,
+              averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+              estimatedWaitMinutes: eta.estimatedWaitMinutes,
+            });
+          }
+        } catch (err) {}
+      }
+    },
+  );
+});
+
+// Custom Request interface
 export interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -124,7 +386,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// List Queues (Protected, Organization Admin / Queue Operator)
+// List Queues (Protected)
 app.get(
   "/api/queues",
   authenticateToken,
@@ -143,7 +405,7 @@ app.get(
   },
 );
 
-// Create Queue (Protected, Organization Admin)
+// Create Queue (Protected)
 app.post(
   "/api/queues",
   authenticateToken,
@@ -183,7 +445,6 @@ app.get("/api/queues/:id/public", async (req, res) => {
     if (!queue || queue.status !== "ACTIVE" || !queue.joinEnabled) {
       return res.status(404).json({ error: "Queue not found or closed" });
     }
-    // Return queue info without exposing sensitive tenant internals
     res.json({
       id: queue.id,
       name: queue.name,
@@ -213,22 +474,20 @@ app.post("/api/queues/:id/join", async (req, res) => {
 
     const { rawToken, tokenHash } = generateSessionToken();
 
-    // Use Prisma transaction with FOR UPDATE row lock to prevent race conditions & duplicate positions
     const result = await prisma.$transaction(async (tx) => {
-      // Row lock on the queue table row for update to serialize position assignment
       try {
         await tx.$executeRaw`SELECT id FROM queues WHERE id = ${queueId} FOR UPDATE`;
-      } catch (err) {
-        // Fallback for sqlite/in-memory if raw lock not supported in non-postgres test env
-      }
+      } catch (err) {}
 
-      // Calculate next FCFS position
       const lastEntry = await tx.queueEntry.findFirst({
         where: { queueId, status: "WAITING" },
         orderBy: { position: "desc" },
         select: { position: true },
       });
       const nextPosition = (lastEntry?.position || 0) + 1;
+
+      // If nextPosition === 1, user is immediately at front of queue -> set serviceStartedAt
+      const serviceStartedAt = nextPosition === 1 ? new Date() : null;
 
       const newEntry = await tx.queueEntry.create({
         data: {
@@ -239,10 +498,10 @@ app.post("/api/queues/:id/join", async (req, res) => {
           status: "WAITING",
           position: nextPosition,
           sessionTokenHash: tokenHash,
+          serviceStartedAt,
         },
       });
 
-      // Record QUEUE_JOINED event
       await tx.queueEvent.create({
         data: {
           tenantId: queue.tenantId,
@@ -254,8 +513,7 @@ app.post("/api/queues/:id/join", async (req, res) => {
         },
       });
 
-      // Calculate people ahead
-      const peopleAhead = nextPosition - 1;
+      const eta = await calculateQueueETA(queueId, nextPosition, tx);
 
       return {
         entry: {
@@ -265,12 +523,18 @@ app.post("/api/queues/:id/join", async (req, res) => {
           status: newEntry.status,
           position: newEntry.position,
           createdAt: newEntry.createdAt,
+          serviceStartedAt: newEntry.serviceStartedAt,
         },
         sessionToken: rawToken,
-        peopleAhead,
+        peopleAhead: eta.peopleAhead,
         queueName: queue.name,
+        averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+        estimatedWaitMinutes: eta.estimatedWaitMinutes,
       };
     });
+
+    // Broadcast real-time update
+    broadcastQueueUpdate(queueId);
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -309,16 +573,7 @@ app.get("/api/queue-entries/:id", async (req, res) => {
         .json({ error: "Forbidden: Access denied to this queue entry" });
     }
 
-    let peopleAhead = 0;
-    if (entry.status === "WAITING") {
-      peopleAhead = await prisma.queueEntry.count({
-        where: {
-          queueId: entry.queueId,
-          status: "WAITING",
-          position: { lt: entry.position },
-        },
-      });
-    }
+    const eta = await calculateQueueETA(entry.queueId, entry.position);
 
     res.json({
       entry: {
@@ -329,11 +584,14 @@ app.get("/api/queue-entries/:id", async (req, res) => {
         status: entry.status,
         position: entry.position,
         createdAt: entry.createdAt,
+        serviceStartedAt: entry.serviceStartedAt,
         completedAt: entry.completedAt,
         cancelledAt: entry.cancelledAt,
       },
-      peopleAhead,
+      peopleAhead: eta.peopleAhead,
       queueName: entry.queue.name,
+      averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+      estimatedWaitMinutes: eta.estimatedWaitMinutes,
     });
   } catch (error) {
     res.status(500).json({ error: "Internal server error" });
@@ -372,7 +630,6 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
       } catch (err) {}
 
-      // Mark COMPLETED
       const completed = await tx.queueEntry.update({
         where: { id: entry.id },
         data: {
@@ -381,7 +638,7 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         },
       });
 
-      // Recompact active positions of remaining WAITING entries
+      // Recompact active positions
       const remaining = await tx.queueEntry.findMany({
         where: { queueId: entry.queueId, status: "WAITING" },
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -397,7 +654,9 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         }
       }
 
-      // Record QUEUE_COMPLETED event
+      // Update serviceStartedAt on newly promoted #1 entry
+      await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
       await tx.queueEvent.create({
         data: {
           tenantId: entry.tenantId,
@@ -411,6 +670,9 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
 
       return completed;
     });
+
+    // Broadcast real-time update
+    broadcastQueueUpdate(entry.queueId);
 
     res.json({
       message: "Queue entry completed successfully",
@@ -461,7 +723,6 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         },
       });
 
-      // Recompact active positions of remaining WAITING entries
       const remaining = await tx.queueEntry.findMany({
         where: { queueId: entry.queueId, status: "WAITING" },
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -477,7 +738,9 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         }
       }
 
-      // Record QUEUE_CANCELLED event
+      // Update serviceStartedAt on newly promoted #1 entry
+      await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
       await tx.queueEvent.create({
         data: {
           tenantId: entry.tenantId,
@@ -491,6 +754,9 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
 
       return cancelled;
     });
+
+    // Broadcast real-time update
+    broadcastQueueUpdate(entry.queueId);
 
     res.json({
       message: "Queue entry cancelled successfully",
@@ -539,6 +805,7 @@ app.get(
           status: true,
           position: true,
           createdAt: true,
+          serviceStartedAt: true,
           completedAt: true,
           cancelledAt: true,
         },
@@ -587,7 +854,6 @@ app.post(
           },
         });
 
-        // Recompact remaining WAITING entries
         const remaining = await tx.queueEntry.findMany({
           where: { queueId: entry.queueId, status: "WAITING" },
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -603,7 +869,9 @@ app.post(
           }
         }
 
-        // Record QUEUE_COMPLETED event
+        // Update serviceStartedAt on newly promoted #1 entry
+        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
         await tx.queueEvent.create({
           data: {
             tenantId: entry.tenantId,
@@ -618,6 +886,9 @@ app.post(
 
         return updated;
       });
+
+      // Broadcast real-time update
+      broadcastQueueUpdate(entry.queueId);
 
       res.json({ message: "Entry marked as DONE", entry: completedEntry });
     } catch (error) {
@@ -662,7 +933,6 @@ app.post(
           },
         });
 
-        // Recompact remaining WAITING entries
         const remaining = await tx.queueEntry.findMany({
           where: { queueId: entry.queueId, status: "WAITING" },
           orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -678,7 +948,9 @@ app.post(
           }
         }
 
-        // Record QUEUE_REMOVED event
+        // Update serviceStartedAt on newly promoted #1 entry
+        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
         await tx.queueEvent.create({
           data: {
             tenantId: entry.tenantId,
@@ -693,6 +965,9 @@ app.post(
 
         return cancelled;
       });
+
+      // Broadcast real-time update
+      broadcastQueueUpdate(entry.queueId);
 
       res.json({ message: "Entry removed successfully", entry: removedEntry });
     } catch (error) {
@@ -747,11 +1022,9 @@ app.post(
           Math.min(targetPosition - 1, waitingEntries.length - 1),
         );
 
-        // Reorder in memory array deterministically
         const [moved] = waitingEntries.splice(currentIndex, 1);
         waitingEntries.splice(validTargetIndex, 0, moved);
 
-        // Update positions atomically without duplicate numbers
         for (let i = 0; i < waitingEntries.length; i++) {
           const newPos = i + 1;
           await tx.queueEntry.update({
@@ -760,9 +1033,11 @@ app.post(
           });
         }
 
+        // Update serviceStartedAt on newly promoted #1 entry
+        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
         const newPos = validTargetIndex + 1;
 
-        // Record QUEUE_REORDERED event
         await tx.queueEvent.create({
           data: {
             tenantId: entry.tenantId,
@@ -782,6 +1057,9 @@ app.post(
         };
       });
 
+      // Broadcast real-time update
+      broadcastQueueUpdate(entry.queueId);
+
       res.json({ message: "Queue reordered successfully", ...reorderedResult });
     } catch (error: any) {
       if (error?.name === "ZodError") {
@@ -795,8 +1073,10 @@ app.post(
 );
 
 if (process.env.NODE_ENV !== "test") {
-  app.listen(PORT, () => {
-    console.log(`API server running on http://localhost:${PORT}`);
+  httpServer.listen(PORT, () => {
+    console.log(
+      `API server with Real-Time Socket.IO running on http://localhost:${PORT}`,
+    );
   });
 }
 

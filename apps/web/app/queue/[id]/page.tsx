@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
+import { io, Socket } from "socket.io-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
 
 export default function PublicQueuePage() {
   const params = useParams();
@@ -29,11 +32,53 @@ export default function PublicQueuePage() {
     sessionToken: string;
     peopleAhead: number;
     queueName: string;
+    averageServiceDurationMinutes?: number | null;
+    estimatedWaitMinutes?: number | null;
   } | null>(null);
 
   // Modal State for Leaving Queue
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+
+  const socketRef = useRef<Socket | null>(null);
+
+  // Initialize Socket.IO connection
+  useEffect(() => {
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      autoConnect: true,
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      // Re-sync if entry session exists
+      if (entryData) {
+        socket.emit("join_public_room", {
+          entryId: entryData.id,
+          sessionToken: entryData.sessionToken,
+        });
+      }
+    });
+
+    socket.on("queue:status_updated", (data) => {
+      setEntryData((prev) =>
+        prev
+          ? {
+              ...prev,
+              position: data.entry.position,
+              status: data.entry.status,
+              peopleAhead: data.peopleAhead,
+              estimatedWaitMinutes: data.estimatedWaitMinutes,
+              averageServiceDurationMinutes: data.averageServiceDurationMinutes,
+            }
+          : null,
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   // Check existing session on load
   useEffect(() => {
@@ -80,7 +125,17 @@ export default function PublicQueuePage() {
           sessionToken,
           peopleAhead: data.peopleAhead,
           queueName: data.queueName,
+          averageServiceDurationMinutes: data.averageServiceDurationMinutes,
+          estimatedWaitMinutes: data.estimatedWaitMinutes,
         });
+
+        // Join real-time socket room
+        if (socketRef.current) {
+          socketRef.current.emit("join_public_room", {
+            entryId: data.entry.id,
+            sessionToken,
+          });
+        }
       } else {
         localStorage.removeItem(`nexturn_session_${queueId}`);
       }
@@ -120,6 +175,8 @@ export default function PublicQueuePage() {
         sessionToken: data.sessionToken,
         peopleAhead: data.peopleAhead,
         queueName: data.queueName,
+        averageServiceDurationMinutes: data.averageServiceDurationMinutes,
+        estimatedWaitMinutes: data.estimatedWaitMinutes,
       };
 
       // Store session token locally
@@ -132,6 +189,14 @@ export default function PublicQueuePage() {
       );
 
       setEntryData(newEntryData);
+
+      // Join socket room for real-time updates
+      if (socketRef.current) {
+        socketRef.current.emit("join_public_room", {
+          entryId: data.entry.id,
+          sessionToken: data.sessionToken,
+        });
+      }
     } catch (err: any) {
       setError(err.message || "An error occurred while joining");
     } finally {
@@ -155,6 +220,9 @@ export default function PublicQueuePage() {
                 position: data.entry.position,
                 status: data.entry.status,
                 peopleAhead: data.peopleAhead,
+                estimatedWaitMinutes: data.estimatedWaitMinutes,
+                averageServiceDurationMinutes:
+                  data.averageServiceDurationMinutes,
               }
             : null,
         );
@@ -181,7 +249,6 @@ export default function PublicQueuePage() {
         },
       );
       if (res.ok) {
-        const data = await res.json();
         setEntryData((prev) =>
           prev ? { ...prev, status: "COMPLETED" } : null,
         );
@@ -250,7 +317,6 @@ export default function PublicQueuePage() {
     );
   }
 
-  // Active or completed queue entry view
   if (entryData) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-slate-50">
@@ -271,11 +337,29 @@ export default function PublicQueuePage() {
                 <div className="text-5xl font-extrabold text-blue-700 my-2">
                   #{entryData.position}
                 </div>
-                <p className="text-slate-600 text-sm font-medium">
+                <p className="text-slate-600 text-sm font-medium mb-3">
                   {entryData.peopleAhead}{" "}
                   {entryData.peopleAhead === 1 ? "person" : "people"} ahead of
                   you
                 </p>
+
+                {/* Estimated Wait Badge */}
+                <div className="inline-block bg-white border border-blue-200 rounded-full px-4 py-1.5 shadow-sm text-sm font-semibold text-blue-800">
+                  {entryData.position === 1 ? (
+                    <span className="text-emerald-700 font-bold">
+                      You're next! / Your turn
+                    </span>
+                  ) : entryData.estimatedWaitMinutes !== null &&
+                    entryData.estimatedWaitMinutes !== undefined ? (
+                    <span>
+                      Estimated wait ~{entryData.estimatedWaitMinutes} min
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 italic">
+                      Estimated wait: Calculating...
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -328,7 +412,7 @@ export default function PublicQueuePage() {
           )}
         </div>
 
-        {/* Confirmation Modal for Leaving Queue */}
+        {/* Confirmation Modal */}
         {showLeaveModal && (
           <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-xl text-left">
@@ -362,7 +446,6 @@ export default function PublicQueuePage() {
     );
   }
 
-  // Initial Registration View
   return (
     <div className="flex min-h-screen items-center justify-center p-4 bg-slate-50">
       <form

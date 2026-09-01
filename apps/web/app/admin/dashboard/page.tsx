@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { io, Socket } from "socket.io-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
+const SOCKET_URL =
+  process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
 
 interface Queue {
   id: string;
@@ -19,6 +22,7 @@ interface QueueEntry {
   position: number;
   status: string;
   createdAt: string;
+  serviceStartedAt?: string | null;
 }
 
 export default function AdminDashboard() {
@@ -34,6 +38,33 @@ export default function AdminDashboard() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const socketRef = useRef<Socket | null>(null);
+
+  // Initialize Socket.IO connection
+  useEffect(() => {
+    const socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      autoConnect: true,
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      if (selectedQueueId && token) {
+        socket.emit("join_admin_room", { queueId: selectedQueueId, token });
+      }
+    });
+
+    socket.on("queue:admin_updated", (data) => {
+      if (data.queueId === selectedQueueId) {
+        setEntries(data.entries || []);
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [selectedQueueId, token]);
+
   useEffect(() => {
     const savedToken = localStorage.getItem("token");
     if (!savedToken) {
@@ -47,6 +78,12 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (selectedQueueId && token) {
       fetchEntries(selectedQueueId, token);
+      if (socketRef.current) {
+        socketRef.current.emit("join_admin_room", {
+          queueId: selectedQueueId,
+          token,
+        });
+      }
     }
   }, [selectedQueueId, token]);
 
@@ -206,7 +243,7 @@ export default function AdminDashboard() {
               Organization Dashboard
             </h1>
             <p className="text-sm text-slate-500">
-              Manage queues and active visitors in real-time
+              Real-Time Queue Operations & Visitor Tracking
             </p>
           </div>
           <button
@@ -220,7 +257,6 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Queue Selector & Creation */}
           <div className="space-y-6">
-            {/* Create Queue Card */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 mb-4">
                 Create Queue
@@ -255,7 +291,6 @@ export default function AdminDashboard() {
               </form>
             </div>
 
-            {/* Queues List */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 mb-4">
                 Your Queues
@@ -296,7 +331,7 @@ export default function AdminDashboard() {
                         {activeQueue.name}
                       </h2>
                       <p className="text-xs text-slate-500">
-                        Active Queue Management
+                        Live Active Queue (Auto-Syncing)
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -306,7 +341,7 @@ export default function AdminDashboard() {
                         rel="noreferrer"
                         className="qr-link text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100 transition"
                       >
-                        Open Public Queue Page
+                        Open Public Page
                       </a>
                       <button
                         onClick={() => fetchEntries(activeQueue.id, token!)}
@@ -317,14 +352,13 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
-                  {/* Active Visitors Table */}
                   {loadingEntries ? (
                     <div className="text-center py-12 text-slate-500 text-sm">
                       Loading active queue...
                     </div>
                   ) : entries.length === 0 ? (
                     <div className="text-center py-12 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500 text-sm">
-                      No active users waiting in this queue.
+                      No active visitors waiting in this queue.
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -348,13 +382,17 @@ export default function AdminDashboard() {
                               </td>
                               <td className="py-3 px-4 font-medium text-slate-800">
                                 {entry.name}
+                                {entry.position === 1 && (
+                                  <span className="ml-2 text-xs font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                                    Serving
+                                  </span>
+                                )}
                               </td>
                               <td className="py-3 px-4 text-slate-500 text-xs">
                                 {entry.phone || "N/A"}
                               </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="flex items-center justify-end space-x-1 sm:space-x-2">
-                                  {/* Reorder Up */}
                                   <button
                                     onClick={() =>
                                       handleAdminReorder(
@@ -371,7 +409,6 @@ export default function AdminDashboard() {
                                     ↑
                                   </button>
 
-                                  {/* Reorder Down */}
                                   <button
                                     onClick={() =>
                                       handleAdminReorder(
@@ -389,7 +426,6 @@ export default function AdminDashboard() {
                                     ↓
                                   </button>
 
-                                  {/* Mark DONE */}
                                   <button
                                     onClick={() => handleAdminDone(entry.id)}
                                     disabled={actionLoading}
@@ -398,7 +434,6 @@ export default function AdminDashboard() {
                                     DONE
                                   </button>
 
-                                  {/* REMOVE */}
                                   <button
                                     onClick={() => handleAdminRemove(entry.id)}
                                     disabled={actionLoading}
