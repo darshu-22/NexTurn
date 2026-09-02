@@ -17,10 +17,11 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users       User[]
-  queues      Queue[]
-  queueEntries QueueEntry[]
-  queueEvents QueueEvent[]
+  users            User[]
+  queues           Queue[]
+  queueEntries     QueueEntry[]
+  queueEvents      QueueEvent[]
+  notificationLogs NotificationLog[]
 
   @@map("tenants")
 }
@@ -51,9 +52,10 @@ model Queue {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  tenant       Tenant       @relation(fields: [tenantId], references: [id])
-  queueEntries QueueEntry[]
-  queueEvents  QueueEvent[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  queueEntries     QueueEntry[]
+  queueEvents      QueueEvent[]
+  notificationLogs NotificationLog[]
 
   @@map("queues")
 }
@@ -73,9 +75,10 @@ model QueueEntry {
   completedAt      DateTime? @map("completed_at")
   cancelledAt      DateTime? @map("cancelled_at")
 
-  tenant Tenant       @relation(fields: [tenantId], references: [id])
-  queue  Queue        @relation(fields: [queueId], references: [id])
-  events QueueEvent[]
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  queue            Queue             @relation(fields: [queueId], references: [id])
+  events           QueueEvent[]
+  notificationLogs NotificationLog[]
 
   @@index([tenantId])
   @@index([queueId, status])
@@ -103,4 +106,29 @@ model QueueEvent {
   @@index([queueEntryId])
   @@map("queue_events")
 }
+
+model NotificationLog {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  queueId           String   @map("queue_id")
+  queueEntryId      String   @map("queue_entry_id")
+  channel           String   // WHATSAPP, SMS, CONSOLE
+  eventType         String   // QUEUE_JOINED, YOUR_TURN, QUEUE_COMPLETED, QUEUE_CLEARED
+  status            String   // SENT, FAILED, SKIPPED
+  recipient         String
+  providerMessageId String?  @map("provider_message_id")
+  errorMessage      String?  @map("error_message")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id])
+  queue      Queue      @relation(fields: [queueId], references: [id])
+  queueEntry QueueEntry @relation(fields: [queueEntryId], references: [id])
+
+  @@index([tenantId])
+  @@index([queueId])
+  @@index([queueEntryId])
+  @@unique([queueEntryId, eventType, channel])
+  @@map("notification_logs")
+}
+
 

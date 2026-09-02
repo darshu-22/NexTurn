@@ -14,6 +14,10 @@ import {
   JoinQueueSchema,
   ReorderQueueSchema,
 } from "@nexturn/validation";
+import {
+  defaultNotificationService,
+  NotificationService,
+} from "./services/notification.service";
 
 dotenv.config();
 
@@ -61,7 +65,6 @@ export async function calculateQueueETA(
 ) {
   const peopleAhead = Math.max(0, position - 1);
 
-  // Query completed entries with valid serviceStartedAt and completedAt
   const completedEntries = await txClient.queueEntry.findMany({
     where: {
       queueId,
@@ -180,9 +183,60 @@ export async function broadcastQueueUpdate(queueId: string) {
   }
 }
 
+// Helper: Post-Commit Notification Processing Helper
+export async function processQueueMutationNotifications(
+  queueId: string,
+  mutationType: "DONE" | "CANCEL" | "REMOVE" | "REORDER",
+  targetEntry?: any,
+  preMutationWaitingCount?: number,
+) {
+  try {
+    const queue = await prisma.queue.findUnique({ where: { id: queueId } });
+    if (!queue) return;
+
+    // 1. Trigger QUEUE_COMPLETED for completed entry
+    if (mutationType === "DONE" && targetEntry) {
+      await defaultNotificationService.sendQueueCompleted(
+        targetEntry,
+        queue.name,
+      );
+    }
+
+    // 2. Trigger YOUR_TURN for entry at position #1
+    const currentFront = await prisma.queueEntry.findFirst({
+      where: { queueId, status: "WAITING", position: 1 },
+    });
+
+    if (currentFront) {
+      await defaultNotificationService.sendYourTurnAlert(
+        currentFront,
+        queue.name,
+      );
+    }
+
+    // 3. Trigger QUEUE_CLEARED if waiting count transitioned from > 0 to 0
+    const postWaitingCount = await prisma.queueEntry.count({
+      where: { queueId, status: "WAITING" },
+    });
+
+    if (
+      preMutationWaitingCount !== undefined &&
+      preMutationWaitingCount > 0 &&
+      postWaitingCount === 0 &&
+      targetEntry
+    ) {
+      await defaultNotificationService.sendQueueCleared(
+        targetEntry,
+        queue.name,
+      );
+    }
+  } catch (err) {
+    console.error("Non-blocking notification error:", err);
+  }
+}
+
 // Socket.IO Connection & Room Security
 io.on("connection", (socket) => {
-  // Join Admin Room with JWT Verification & Tenant Isolation
   socket.on("join_admin_room", async ({ queueId, token }) => {
     try {
       if (!token || !queueId) return;
@@ -211,7 +265,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Join Public Room with Session Token Security
   socket.on("join_public_room", async ({ entryId, sessionToken }) => {
     try {
       if (!entryId || !sessionToken) return;
@@ -251,7 +304,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Reconnection State Resynchronization
   socket.on(
     "request_sync",
     async ({ queueId, entryId, sessionToken, adminToken }) => {
@@ -305,7 +357,6 @@ io.on("connection", (socket) => {
   );
 });
 
-// Custom Request interface
 export interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -314,7 +365,6 @@ export interface AuthRequest extends Request {
   };
 }
 
-// Authentication Middleware
 export const authenticateToken = (
   req: AuthRequest,
   res: Response,
@@ -333,7 +383,6 @@ export const authenticateToken = (
   });
 };
 
-// Tenant Isolation Middleware
 export const requireTenantAccess = (
   req: AuthRequest,
   res: Response,
@@ -345,7 +394,6 @@ export const requireTenantAccess = (
   next();
 };
 
-// Authorization Middleware
 export const requireRole = (roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
@@ -386,7 +434,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// List Queues (Protected)
+// List Queues
 app.get(
   "/api/queues",
   authenticateToken,
@@ -405,7 +453,7 @@ app.get(
   },
 );
 
-// Create Queue (Protected)
+// Create Queue
 app.post(
   "/api/queues",
   authenticateToken,
@@ -427,7 +475,7 @@ app.post(
   },
 );
 
-// Get Public Queue Info
+// Public Queue Info
 app.get("/api/queues/:id/public", async (req, res) => {
   try {
     const { id } = req.params;
@@ -485,8 +533,6 @@ app.post("/api/queues/:id/join", async (req, res) => {
         select: { position: true },
       });
       const nextPosition = (lastEntry?.position || 0) + 1;
-
-      // If nextPosition === 1, user is immediately at front of queue -> set serviceStartedAt
       const serviceStartedAt = nextPosition === 1 ? new Date() : null;
 
       const newEntry = await tx.queueEntry.create({
@@ -519,7 +565,9 @@ app.post("/api/queues/:id/join", async (req, res) => {
         entry: {
           id: newEntry.id,
           queueId: newEntry.queueId,
+          tenantId: newEntry.tenantId,
           name: newEntry.name,
+          phone: newEntry.phone,
           status: newEntry.status,
           position: newEntry.position,
           createdAt: newEntry.createdAt,
@@ -533,8 +581,14 @@ app.post("/api/queues/:id/join", async (req, res) => {
       };
     });
 
-    // Broadcast real-time update
+    // Post-Commit Real-Time Broadcast
     broadcastQueueUpdate(queueId);
+
+    // Post-Commit Notification Dispatch (Non-Blocking)
+    defaultNotificationService.sendQueueJoined(result.entry, queue.name);
+    if (result.entry.position === 1) {
+      defaultNotificationService.sendYourTurnAlert(result.entry, queue.name);
+    }
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -547,7 +601,7 @@ app.post("/api/queues/:id/join", async (req, res) => {
   }
 });
 
-// Get User Queue Status (Public with session token)
+// Get User Queue Status
 app.get("/api/queue-entries/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -625,6 +679,10 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         .json({ error: `Cannot complete entry with status ${entry.status}` });
     }
 
+    const preWaitingCount = await prisma.queueEntry.count({
+      where: { queueId: entry.queueId, status: "WAITING" },
+    });
+
     const updatedEntry = await prisma.$transaction(async (tx) => {
       try {
         await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -638,7 +696,6 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         },
       });
 
-      // Recompact active positions
       const remaining = await tx.queueEntry.findMany({
         where: { queueId: entry.queueId, status: "WAITING" },
         orderBy: [{ position: "asc" }, { createdAt: "asc" }],
@@ -654,7 +711,6 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         }
       }
 
-      // Update serviceStartedAt on newly promoted #1 entry
       await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
       await tx.queueEvent.create({
@@ -671,8 +727,13 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
       return completed;
     });
 
-    // Broadcast real-time update
     broadcastQueueUpdate(entry.queueId);
+    processQueueMutationNotifications(
+      entry.queueId,
+      "DONE",
+      updatedEntry,
+      preWaitingCount,
+    );
 
     res.json({
       message: "Queue entry completed successfully",
@@ -710,6 +771,10 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         .json({ error: `Cannot cancel entry with status ${entry.status}` });
     }
 
+    const preWaitingCount = await prisma.queueEntry.count({
+      where: { queueId: entry.queueId, status: "WAITING" },
+    });
+
     const cancelledEntry = await prisma.$transaction(async (tx) => {
       try {
         await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -738,7 +803,6 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         }
       }
 
-      // Update serviceStartedAt on newly promoted #1 entry
       await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
       await tx.queueEvent.create({
@@ -755,8 +819,13 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
       return cancelled;
     });
 
-    // Broadcast real-time update
     broadcastQueueUpdate(entry.queueId);
+    processQueueMutationNotifications(
+      entry.queueId,
+      "CANCEL",
+      cancelledEntry,
+      preWaitingCount,
+    );
 
     res.json({
       message: "Queue entry cancelled successfully",
@@ -841,6 +910,10 @@ app.post(
           .json({ error: `Cannot complete entry with status ${entry.status}` });
       }
 
+      const preWaitingCount = await prisma.queueEntry.count({
+        where: { queueId: entry.queueId, status: "WAITING" },
+      });
+
       const completedEntry = await prisma.$transaction(async (tx) => {
         try {
           await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -869,7 +942,6 @@ app.post(
           }
         }
 
-        // Update serviceStartedAt on newly promoted #1 entry
         await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
         await tx.queueEvent.create({
@@ -887,8 +959,13 @@ app.post(
         return updated;
       });
 
-      // Broadcast real-time update
       broadcastQueueUpdate(entry.queueId);
+      processQueueMutationNotifications(
+        entry.queueId,
+        "DONE",
+        completedEntry,
+        preWaitingCount,
+      );
 
       res.json({ message: "Entry marked as DONE", entry: completedEntry });
     } catch (error) {
@@ -920,6 +997,10 @@ app.post(
           .json({ error: `Cannot remove entry with status ${entry.status}` });
       }
 
+      const preWaitingCount = await prisma.queueEntry.count({
+        where: { queueId: entry.queueId, status: "WAITING" },
+      });
+
       const removedEntry = await prisma.$transaction(async (tx) => {
         try {
           await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -948,7 +1029,6 @@ app.post(
           }
         }
 
-        // Update serviceStartedAt on newly promoted #1 entry
         await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
         await tx.queueEvent.create({
@@ -966,8 +1046,13 @@ app.post(
         return cancelled;
       });
 
-      // Broadcast real-time update
       broadcastQueueUpdate(entry.queueId);
+      processQueueMutationNotifications(
+        entry.queueId,
+        "REMOVE",
+        removedEntry,
+        preWaitingCount,
+      );
 
       res.json({ message: "Entry removed successfully", entry: removedEntry });
     } catch (error) {
@@ -1002,6 +1087,10 @@ app.post(
           .json({ error: "Can only reorder WAITING queue entries" });
       }
 
+      const preWaitingCount = await prisma.queueEntry.count({
+        where: { queueId: entry.queueId, status: "WAITING" },
+      });
+
       const reorderedResult = await prisma.$transaction(async (tx) => {
         try {
           await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -1033,7 +1122,6 @@ app.post(
           });
         }
 
-        // Update serviceStartedAt on newly promoted #1 entry
         await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
         const newPos = validTargetIndex + 1;
@@ -1057,8 +1145,13 @@ app.post(
         };
       });
 
-      // Broadcast real-time update
       broadcastQueueUpdate(entry.queueId);
+      processQueueMutationNotifications(
+        entry.queueId,
+        "REORDER",
+        entry,
+        preWaitingCount,
+      );
 
       res.json({ message: "Queue reordered successfully", ...reorderedResult });
     } catch (error: any) {
@@ -1074,9 +1167,7 @@ app.post(
 
 if (process.env.NODE_ENV !== "test") {
   httpServer.listen(PORT, () => {
-    console.log(
-      `API server with Real-Time Socket.IO running on http://localhost:${PORT}`,
-    );
+    console.log(`API server running on http://localhost:${PORT}`);
   });
 }
 
