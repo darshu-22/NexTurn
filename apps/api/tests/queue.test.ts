@@ -654,4 +654,69 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
       expect(bStatus.body.entry.serviceStartedAt).toBeTruthy();
     });
   });
+
+  describe("Phase 4 — Website Realtime Notifications & Security", () => {
+    it("ensures public queue endpoints supply all data required for client-side realtime notifications", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "Darshan", phone: "+919876543210" });
+
+      expect(u1.statusCode).toBe(201);
+      expect(u1.body.entry.name).toBe("Darshan");
+      expect(u1.body.entry.position).toBe(1);
+      expect(u1.body.sessionToken).toBeTruthy();
+      expect(u1.body.queueName).toBe("Main Queue");
+    });
+
+    it("verifies session token security: unauthorized token cannot fetch status", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "Alice" });
+
+      const fakeTokenRes = await request(app)
+        .get(`/api/queue-entries/${u1.body.entry.id}`)
+        .set("x-session-token", "invalid-session-token-12345");
+
+      expect(fakeTokenRes.statusCode).toBe(403);
+    });
+
+    it("verifies position progression (#3 -> #2 -> #1) through queue completion steps", async () => {
+      const u1 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User 1" });
+      const u2 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User 2" });
+      const u3 = await request(app)
+        .post("/api/queues/queue-1/join")
+        .send({ name: "User 3" });
+
+      expect(u1.body.entry.position).toBe(1);
+      expect(u2.body.entry.position).toBe(2);
+      expect(u3.body.entry.position).toBe(3);
+
+      // Complete U1
+      await request(app)
+        .post(`/api/queue-entries/${u1.body.entry.id}/done`)
+        .set("x-session-token", u1.body.sessionToken);
+
+      // Check U3 status -> now #2
+      const u3Pos2 = await request(app)
+        .get(`/api/queue-entries/${u3.body.entry.id}`)
+        .set("x-session-token", u3.body.sessionToken);
+      expect(u3Pos2.body.entry.position).toBe(2);
+
+      // Complete U2
+      await request(app)
+        .post(`/api/queue-entries/${u2.body.entry.id}/done`)
+        .set("x-session-token", u2.body.sessionToken);
+
+      // Check U3 status -> now #1 (YOUR TURN!)
+      const u3Pos1 = await request(app)
+        .get(`/api/queue-entries/${u3.body.entry.id}`)
+        .set("x-session-token", u3.body.sessionToken);
+      expect(u3Pos1.body.entry.position).toBe(1);
+      expect(u3Pos1.body.peopleAhead).toBe(0);
+    });
+  });
 });

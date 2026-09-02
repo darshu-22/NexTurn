@@ -14,10 +14,6 @@ import {
   JoinQueueSchema,
   ReorderQueueSchema,
 } from "@nexturn/validation";
-import {
-  defaultNotificationService,
-  NotificationService,
-} from "./services/notification.service";
 
 dotenv.config();
 
@@ -180,58 +176,6 @@ export async function broadcastQueueUpdate(queueId: string) {
     }
   } catch (err) {
     console.error("Real-time broadcast error:", err);
-  }
-}
-
-// Helper: Post-Commit Notification Processing Helper
-export async function processQueueMutationNotifications(
-  queueId: string,
-  mutationType: "DONE" | "CANCEL" | "REMOVE" | "REORDER",
-  targetEntry?: any,
-  preMutationWaitingCount?: number,
-) {
-  try {
-    const queue = await prisma.queue.findUnique({ where: { id: queueId } });
-    if (!queue) return;
-
-    // 1. Trigger QUEUE_COMPLETED for completed entry
-    if (mutationType === "DONE" && targetEntry) {
-      await defaultNotificationService.sendQueueCompleted(
-        targetEntry,
-        queue.name,
-      );
-    }
-
-    // 2. Trigger YOUR_TURN for entry at position #1
-    const currentFront = await prisma.queueEntry.findFirst({
-      where: { queueId, status: "WAITING", position: 1 },
-    });
-
-    if (currentFront) {
-      await defaultNotificationService.sendYourTurnAlert(
-        currentFront,
-        queue.name,
-      );
-    }
-
-    // 3. Trigger QUEUE_CLEARED if waiting count transitioned from > 0 to 0
-    const postWaitingCount = await prisma.queueEntry.count({
-      where: { queueId, status: "WAITING" },
-    });
-
-    if (
-      preMutationWaitingCount !== undefined &&
-      preMutationWaitingCount > 0 &&
-      postWaitingCount === 0 &&
-      targetEntry
-    ) {
-      await defaultNotificationService.sendQueueCleared(
-        targetEntry,
-        queue.name,
-      );
-    }
-  } catch (err) {
-    console.error("Non-blocking notification error:", err);
   }
 }
 
@@ -581,14 +525,8 @@ app.post("/api/queues/:id/join", async (req, res) => {
       };
     });
 
-    // Post-Commit Real-Time Broadcast
+    // Broadcast real-time update
     broadcastQueueUpdate(queueId);
-
-    // Post-Commit Notification Dispatch (Non-Blocking)
-    defaultNotificationService.sendQueueJoined(result.entry, queue.name);
-    if (result.entry.position === 1) {
-      defaultNotificationService.sendYourTurnAlert(result.entry, queue.name);
-    }
 
     res.status(201).json(result);
   } catch (error: any) {
@@ -679,10 +617,6 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         .json({ error: `Cannot complete entry with status ${entry.status}` });
     }
 
-    const preWaitingCount = await prisma.queueEntry.count({
-      where: { queueId: entry.queueId, status: "WAITING" },
-    });
-
     const updatedEntry = await prisma.$transaction(async (tx) => {
       try {
         await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -728,12 +662,6 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
     });
 
     broadcastQueueUpdate(entry.queueId);
-    processQueueMutationNotifications(
-      entry.queueId,
-      "DONE",
-      updatedEntry,
-      preWaitingCount,
-    );
 
     res.json({
       message: "Queue entry completed successfully",
@@ -770,10 +698,6 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         .status(400)
         .json({ error: `Cannot cancel entry with status ${entry.status}` });
     }
-
-    const preWaitingCount = await prisma.queueEntry.count({
-      where: { queueId: entry.queueId, status: "WAITING" },
-    });
 
     const cancelledEntry = await prisma.$transaction(async (tx) => {
       try {
@@ -820,12 +744,6 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
     });
 
     broadcastQueueUpdate(entry.queueId);
-    processQueueMutationNotifications(
-      entry.queueId,
-      "CANCEL",
-      cancelledEntry,
-      preWaitingCount,
-    );
 
     res.json({
       message: "Queue entry cancelled successfully",
@@ -910,10 +828,6 @@ app.post(
           .json({ error: `Cannot complete entry with status ${entry.status}` });
       }
 
-      const preWaitingCount = await prisma.queueEntry.count({
-        where: { queueId: entry.queueId, status: "WAITING" },
-      });
-
       const completedEntry = await prisma.$transaction(async (tx) => {
         try {
           await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
@@ -960,12 +874,6 @@ app.post(
       });
 
       broadcastQueueUpdate(entry.queueId);
-      processQueueMutationNotifications(
-        entry.queueId,
-        "DONE",
-        completedEntry,
-        preWaitingCount,
-      );
 
       res.json({ message: "Entry marked as DONE", entry: completedEntry });
     } catch (error) {
@@ -996,10 +904,6 @@ app.post(
           .status(400)
           .json({ error: `Cannot remove entry with status ${entry.status}` });
       }
-
-      const preWaitingCount = await prisma.queueEntry.count({
-        where: { queueId: entry.queueId, status: "WAITING" },
-      });
 
       const removedEntry = await prisma.$transaction(async (tx) => {
         try {
@@ -1047,12 +951,6 @@ app.post(
       });
 
       broadcastQueueUpdate(entry.queueId);
-      processQueueMutationNotifications(
-        entry.queueId,
-        "REMOVE",
-        removedEntry,
-        preWaitingCount,
-      );
 
       res.json({ message: "Entry removed successfully", entry: removedEntry });
     } catch (error) {
@@ -1086,10 +984,6 @@ app.post(
           .status(400)
           .json({ error: "Can only reorder WAITING queue entries" });
       }
-
-      const preWaitingCount = await prisma.queueEntry.count({
-        where: { queueId: entry.queueId, status: "WAITING" },
-      });
 
       const reorderedResult = await prisma.$transaction(async (tx) => {
         try {
@@ -1146,12 +1040,6 @@ app.post(
       });
 
       broadcastQueueUpdate(entry.queueId);
-      processQueueMutationNotifications(
-        entry.queueId,
-        "REORDER",
-        entry,
-        preWaitingCount,
-      );
 
       res.json({ message: "Queue reordered successfully", ...reorderedResult });
     } catch (error: any) {
