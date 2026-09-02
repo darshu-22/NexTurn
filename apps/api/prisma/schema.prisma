@@ -5,8 +5,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 model Tenant {
@@ -91,7 +91,7 @@ model QueueEvent {
   eventType    String   @map("event_type") // QUEUE_JOINED, QUEUE_COMPLETED, QUEUE_CANCELLED, QUEUE_REMOVED, QUEUE_REORDERED
   actorId      String?  @map("actor_id")
   actorRole    String?  @map("actor_role")
-  payload      Json?
+  payload      String?
   createdAt    DateTime @default(now()) @map("created_at")
 
   tenant     Tenant      @relation(fields: [tenantId], references: [id])

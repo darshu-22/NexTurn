@@ -499,7 +499,10 @@ app.post("/api/queues/:id/join", async (req, res) => {
           queueEntryId: newEntry.id,
           eventType: "QUEUE_JOINED",
           actorRole: "USER",
-          payload: { position: nextPosition, name: newEntry.name },
+          payload: JSON.stringify({
+            position: nextPosition,
+            name: newEntry.name,
+          }),
         },
       });
 
@@ -654,7 +657,7 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
           queueEntryId: entry.id,
           eventType: "QUEUE_COMPLETED",
           actorRole: "USER",
-          payload: { previousPosition: entry.position },
+          payload: JSON.stringify({ previousPosition: entry.position }),
         },
       });
 
@@ -736,7 +739,7 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
           queueEntryId: entry.id,
           eventType: "QUEUE_CANCELLED",
           actorRole: "USER",
-          payload: { previousPosition: entry.position },
+          payload: JSON.stringify({ previousPosition: entry.position }),
         },
       });
 
@@ -866,7 +869,7 @@ app.post(
             eventType: "QUEUE_COMPLETED",
             actorId: req.user!.id,
             actorRole: req.user!.role,
-            payload: { previousPosition: entry.position },
+            payload: JSON.stringify({ previousPosition: entry.position }),
           },
         });
 
@@ -943,7 +946,7 @@ app.post(
             eventType: "QUEUE_REMOVED",
             actorId: req.user!.id,
             actorRole: req.user!.role,
-            payload: { previousPosition: entry.position },
+            payload: JSON.stringify({ previousPosition: entry.position }),
           },
         });
 
@@ -1028,7 +1031,10 @@ app.post(
             eventType: "QUEUE_REORDERED",
             actorId: req.user!.id,
             actorRole: req.user!.role,
-            payload: { previousPosition: entry.position, newPosition: newPos },
+            payload: JSON.stringify({
+              fromPosition: entry.position,
+              toPosition: newPos,
+            }),
           },
         });
 

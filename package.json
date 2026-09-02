@@ -11,13 +11,14 @@
     "prepare": "husky install"
   },
   "devDependencies": {
-    "turbo": "^1.13.3",
+    "@playwright/test": "^1.62.1",
     "husky": "^8.0.0",
-    "prettier": "^3.2.5"
+    "playwright": "^1.62.1",
+    "prettier": "^3.2.5",
+    "turbo": "^1.13.3"
   },
   "engines": {
     "node": ">=18"
   },
   "packageManager": "pnpm@11.25.0"
 }
-
