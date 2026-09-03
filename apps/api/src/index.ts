@@ -17,6 +17,25 @@ import {
 
 dotenv.config();
 
+const DEFAULT_INSECURE_SECRETS = [
+  "fallback-secret-do-not-use-in-prod",
+  "dev-secret-key-12345",
+  "your-super-secure-jwt-secret-key-change-in-production",
+  "change-in-production",
+  "secret",
+  "123456",
+];
+
+if (process.env.NODE_ENV === "production") {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret || DEFAULT_INSECURE_SECRETS.includes(secret)) {
+    console.error(
+      "FATAL PRODUCTION CONFIGURATION ERROR: A secure, strong JWT_SECRET environment variable must be set in production mode!",
+    );
+    process.exit(1);
+  }
+}
+
 const app = express();
 const httpServer = http.createServer(app);
 export const io = new SocketIOServer(httpServer, {

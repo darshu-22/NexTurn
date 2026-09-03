@@ -113,11 +113,15 @@ export default function PublicQueuePage() {
         data.entry.status === "WAITING"
       ) {
         if (newPos === 1) {
-          addToast(
-            "success",
-            "🎉 It's your turn!",
-            "Please proceed now to the service counter.",
-          );
+          if (data.isQueueCleared || data.eventType === "QUEUE_CLEARED") {
+            addToast(
+              "success",
+              "🎉 It's your turn!",
+              "🚨 The queue has cleared! It's your turn now. Please proceed.",
+            );
+          } else {
+            addToast("success", "🎉 It's your turn!", "Please proceed now.");
+          }
         } else if (newPos === 2) {
           addToast(
             "alert",
