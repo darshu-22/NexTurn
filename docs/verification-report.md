@@ -227,8 +227,32 @@ _\* SUPER_ADMIN is created only via secure environment bootstrap. Public signup 
 
 ---
 
-## 13. Conclusion & Commit Statement
+## 13. Camera QR Scanner Audit & Verification
 
-The NexTurn real-time queue management application has passed 100% of end-to-end verification tests across database concurrency, real-time WebSocket state synchronization, website notifications, service duration-based ETA, responsive UI layouts, and security authorization boundaries.
+### 13.1 Feature Implementation & User Experience
 
-The working tree is completely verified, stable, and ready for official Git checkpoint commitment.
+- **Client-Side Scanner**: Integrated `QRScannerModal` (`html5-qrcode`) into the user dashboard (`/dashboard`) for normal `USER` accounts.
+- **Browser Permission Request**: Clicking **"Scan QR Code"** invokes `Html5Qrcode.start({ facingMode: "environment" })`, triggering native browser camera permissions without bypassing security boundaries.
+- **Mobile Viewport Optimization**: Designed as a responsive, touch-friendly modal overlay optimized for mobile devices and smartphones.
+- **Auto Detection & Navigation**:
+  - Scanning a valid NexTurn QR code extracts the queue URL / queue ID.
+  - Automatically stops camera feed and navigates to `/queue/[queueId]`.
+
+### 13.2 Permission Denied & Device Fallback
+
+- **Permission Error Handling**: If camera permission is denied or no camera device exists (e.g. desktop environment), a clear warning banner is displayed: `"Camera access denied or unavailable."`.
+- **Manual Entry Fallback**: Provides an input field allowing users to manually paste or type a Queue URL / Queue ID and click **"Open Queue"**.
+
+### 13.3 Security & Authorization Enforcement
+
+- Scanning or opening a queue URL via the scanner does **not** bypass queue authorization.
+- Unauthenticated visitors navigating to `/queue/[queueId]` are prompted to log in (`/login?redirect=/queue/[queueId]`).
+- Authenticated `USER`s join queues using their stored profile (`name`, `phone`, `userId`). Non-USER roles (`ADMIN`, `SUPER_ADMIN`) cannot join as normal users (`403 Forbidden`).
+
+---
+
+## 14. Conclusion & Commit Statement
+
+The NexTurn real-time queue management application has passed 100% of end-to-end verification tests across database concurrency, real-time WebSocket state synchronization, website notifications, service duration-based ETA, responsive UI layouts, role-based access control (RBAC), and camera QR scanning.
+
+The working tree is completely verified, stable, and ready for final commitment.

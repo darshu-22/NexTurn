@@ -83,6 +83,15 @@ export async function bootstrapSuperAdmin() {
           status: "ACTIVE",
         },
       });
+    } else if (email && password) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      await prisma.user.update({
+        where: { id: existingSuperAdmin.id },
+        data: {
+          email,
+          passwordHash,
+        },
+      });
     }
   } catch (err) {
     // Ignore initialization errors in mock environments

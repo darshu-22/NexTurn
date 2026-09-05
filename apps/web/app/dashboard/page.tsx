@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import QRScannerModal from "../components/QRScannerModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
 
@@ -10,6 +11,7 @@ export default function UserDashboard() {
   const [user, setUser] = useState<any>(null);
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -68,6 +70,11 @@ export default function UserDashboard() {
     router.push("/login");
   };
 
+  const handleScanSuccess = (queueId: string) => {
+    setIsScannerOpen(false);
+    router.push(`/queue/${queueId}`);
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 text-slate-100">
@@ -94,27 +101,65 @@ export default function UserDashboard() {
               {user?.email} {user?.phone ? `• ${user.phone}` : ""}
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="self-start md:self-auto px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-xl transition"
-          >
-            Log Out
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsScannerOpen(true)}
+              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v1m0 14v1m8-8h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
+                />
+              </svg>
+              Scan QR Code
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-xl transition"
+            >
+              Log Out
+            </button>
+          </div>
         </div>
 
         {/* Joined Queues */}
         <div className="p-6 bg-slate-800 border border-slate-700 rounded-2xl space-y-4">
-          <h2 className="text-lg font-bold text-white">Your Active Queues</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-white">Your Active Queues</h2>
+            <button
+              onClick={() => setIsScannerOpen(true)}
+              className="text-xs text-blue-400 hover:underline font-medium"
+            >
+              + Join another queue
+            </button>
+          </div>
 
           {activeEntries.length === 0 ? (
-            <div className="text-center py-8 border border-dashed border-slate-700 rounded-xl">
-              <p className="text-slate-400 text-sm mb-3">
-                You are not currently in any queues.
-              </p>
-              <p className="text-xs text-slate-500">
-                Scan an organization's QR code or open a public queue link to
-                join.
-              </p>
+            <div className="text-center py-8 border border-dashed border-slate-700 rounded-xl space-y-4">
+              <div>
+                <p className="text-slate-400 text-sm mb-1">
+                  You are not currently in any queues.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Scan an organization's QR code or open a public queue link to
+                  join.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsScannerOpen(true)}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm rounded-xl transition inline-flex items-center gap-2"
+              >
+                Scan QR Code Now
+              </button>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -143,6 +188,13 @@ export default function UserDashboard() {
           )}
         </div>
       </div>
+
+      {/* QR Scanner Modal */}
+      <QRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={handleScanSuccess}
+      />
     </div>
   );
 }
