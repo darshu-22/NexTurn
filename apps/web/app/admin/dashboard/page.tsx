@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { io, Socket } from "socket.io-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
@@ -246,12 +247,23 @@ export default function AdminDashboard() {
               Real-Time Queue Operations & Visitor Tracking
             </p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition text-sm"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            {typeof window !== "undefined" &&
+              localStorage.getItem("role") === "SUPER_ADMIN" && (
+                <Link
+                  href="/super-admin"
+                  className="px-3.5 py-2 bg-purple-100 text-purple-700 hover:bg-purple-200 font-semibold rounded-lg transition text-xs border border-purple-300"
+                >
+                  Super Admin Portal →
+                </Link>
+              )}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition text-sm"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

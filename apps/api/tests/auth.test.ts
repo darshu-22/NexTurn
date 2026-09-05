@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 const JWT_SECRET =
   process.env.JWT_SECRET || "fallback-secret-do-not-use-in-prod";
 
-describe("Auth & Tenant Isolation API Tests", () => {
+describe("Auth & RBAC Matrix API Tests", () => {
   it("should block unauthenticated requests to protected routes", async () => {
     const res = await request(app)
       .post("/api/queues")
@@ -13,8 +13,28 @@ describe("Auth & Tenant Isolation API Tests", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("should enforce role-based access for queue creation", async () => {
-    // Sign a token for a normal user
+  it("should block unauthenticated guest requests to join queue with 401", async () => {
+    const res = await request(app)
+      .post("/api/queues/queue-1/join")
+      .send({ name: "Unauthenticated Guest", phone: "+15551234567" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("should prevent ADMIN from calling join queue endpoint with 403", async () => {
+    const token = jwt.sign(
+      { id: "admin1", tenantId: "tenant1", role: "ADMIN" },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .post("/api/queues/queue-1/join")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Admin Impersonator" });
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("should enforce role-based access for queue creation (USER blocked with 403)", async () => {
     const token = jwt.sign(
       { id: "user1", tenantId: "tenant1", role: "USER" },
       JWT_SECRET,
@@ -25,16 +45,11 @@ describe("Auth & Tenant Isolation API Tests", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ name: "Test Queue" });
 
-    // Should be forbidden because they are not ORGANIZATION_ADMIN
     expect(res.statusCode).toBe(403);
   });
 
   it("should reject queue creation without tenant context", async () => {
-    // Sign a token with missing tenantId
-    const token = jwt.sign(
-      { id: "admin1", role: "ORGANIZATION_ADMIN" },
-      JWT_SECRET,
-    );
+    const token = jwt.sign({ id: "admin1", role: "ADMIN" }, JWT_SECRET);
 
     const res = await request(app)
       .post("/api/queues")
@@ -43,5 +58,31 @@ describe("Auth & Tenant Isolation API Tests", () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.body.error).toContain("No tenant context");
+  });
+
+  it("should prevent ADMIN from accessing Super Admin endpoints (403)", async () => {
+    const token = jwt.sign(
+      { id: "admin1", tenantId: "tenant1", role: "ADMIN" },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .get("/api/super-admin/admins")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("should prevent USER from accessing Super Admin endpoints (403)", async () => {
+    const token = jwt.sign(
+      { id: "user1", tenantId: "tenant1", role: "USER" },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .get("/api/super-admin/admins")
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.statusCode).toBe(403);
   });
 });

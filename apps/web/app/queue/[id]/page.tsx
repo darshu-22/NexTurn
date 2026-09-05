@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api";
@@ -17,6 +17,7 @@ interface ToastNotification {
 
 export default function PublicQueuePage() {
   const params = useParams();
+  const router = useRouter();
   const queueId = params?.id as string;
 
   const [queueInfo, setQueueInfo] = useState<{
@@ -151,7 +152,31 @@ export default function PublicQueuePage() {
 
     fetchQueueInfo();
     checkExistingSession();
+    checkUserAuth();
   }, [queueId]);
+
+  const checkUserAuth = async () => {
+    const userToken = localStorage.getItem("token");
+    if (!userToken) return;
+
+    try {
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed.name) setName(parsed.name);
+        if (parsed.phone) setPhone(parsed.phone);
+      } else {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${userToken}` },
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          if (userData.name) setName(userData.name);
+          if (userData.phone) setPhone(userData.phone);
+        }
+      }
+    } catch (err) {}
+  };
 
   const fetchQueueInfo = async () => {
     try {
@@ -216,17 +241,26 @@ export default function PublicQueuePage() {
     e.preventDefault();
     setError("");
 
-    if (name.trim().length < 2) {
-      setError("Name must be at least 2 characters");
+    const userToken = localStorage.getItem("token");
+    if (!userToken) {
+      router.push(`/login?redirect=/queue/${queueId}`);
       return;
     }
 
     try {
       setJoining(true);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${userToken}`,
+      };
+
       const res = await fetch(`${API_BASE}/queues/${queueId}/join`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone }),
+        headers,
+        body: JSON.stringify({
+          name: name || undefined,
+          phone: phone || undefined,
+        }),
       });
 
       if (!res.ok) {

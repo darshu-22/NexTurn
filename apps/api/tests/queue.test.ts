@@ -199,7 +199,20 @@ jest.mock("@prisma/client", () => {
         user: {
           findFirst: jest.fn().mockImplementation(({ where }) => {
             return Promise.resolve(
-              db.users.find((u) => u.email === where.email) || null,
+              db.users.find(
+                (u) =>
+                  (where.email && u.email === where.email) ||
+                  (where.id && u.id === where.id),
+              ) || null,
+            );
+          }),
+          findUnique: jest.fn().mockImplementation(({ where }) => {
+            return Promise.resolve(
+              db.users.find(
+                (u) =>
+                  (where.id && u.id === where.id) ||
+                  (where.email && u.email === where.email),
+              ) || null,
             );
           }),
         },
@@ -242,6 +255,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("assigns sequential positions (#1, #2, #3) to users joining queue", async () => {
       const res1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul", phone: "9876543210" });
       expect(res1.statusCode).toBe(201);
       expect(res1.body.entry.position).toBe(1);
@@ -250,6 +264,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
 
       const res2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Priya", phone: "9876543211" });
       expect(res2.statusCode).toBe(201);
       expect(res2.body.entry.position).toBe(2);
@@ -257,6 +272,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
 
       const res3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Arjun", phone: "9876543212" });
       expect(res3.statusCode).toBe(201);
       expect(res3.body.entry.position).toBe(3);
@@ -271,11 +287,13 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("rejects joining closed or non-existent queues", async () => {
       const resClosed = await request(app)
         .post("/api/queues/queue-closed/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul" });
       expect(resClosed.statusCode).toBe(400);
 
       const resNotFound = await request(app)
         .post("/api/queues/non-existent-id/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul" });
       expect(resNotFound.statusCode).toBe(400);
     });
@@ -285,6 +303,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows a user with a valid session token to view their status", async () => {
       const joinRes = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul" });
       const { id } = joinRes.body.entry;
       const { sessionToken } = joinRes.body;
@@ -294,13 +313,14 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
         .set("x-session-token", sessionToken);
 
       expect(statusRes.statusCode).toBe(200);
-      expect(statusRes.body.entry.name).toBe("Rahul");
+      expect(statusRes.body.entry.name).toBe("User One");
       expect(statusRes.body.entry.position).toBe(1);
     });
 
     it("blocks unauthorized status view requests without valid session token", async () => {
       const joinRes = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul" });
       const { id } = joinRes.body.entry;
 
@@ -320,12 +340,15 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows user to mark self DONE and recompacts remaining active queue positions", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User C" });
 
       // User A marks self DONE
@@ -353,12 +376,15 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows user to LEAVE/CANCEL their entry and recompacts remaining queue", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User C" });
 
       // User B leaves
@@ -380,9 +406,11 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows admin to view active queue entries", async () => {
       await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Rahul" });
       await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Priya" });
 
       const res = await request(app)
@@ -391,16 +419,18 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.entries.length).toBe(2);
-      expect(res.body.entries[0].name).toBe("Rahul");
-      expect(res.body.entries[1].name).toBe("Priya");
+      expect(res.body.entries[0].name).toBe("User One");
+      expect(res.body.entries[1].name).toBe("User One");
     });
 
     it("allows admin to mark user DONE", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
 
       const res = await request(app)
@@ -419,12 +449,15 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows admin to REMOVE user", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User C" });
 
       const removeRes = await request(app)
@@ -444,15 +477,19 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("allows admin to REORDER user positions without duplicate numbers", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" }); // #1
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" }); // #2
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User C" }); // #3
       const u4 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User D" }); // #4
 
       // Move D (#4) to position #2
@@ -473,10 +510,10 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
         pos: e.position,
       }));
       expect(positions).toEqual([
-        { name: "User A", pos: 1 },
-        { name: "User D", pos: 2 },
-        { name: "User B", pos: 3 },
-        { name: "User C", pos: 4 },
+        { name: "User One", pos: 1 },
+        { name: "User One", pos: 2 },
+        { name: "User One", pos: 3 },
+        { name: "User One", pos: 4 },
       ]);
     });
   });
@@ -486,6 +523,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
       // User joins Tenant B queue
       const uB = await request(app)
         .post("/api/queues/queue-2/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Tenant B User" });
 
       // Tenant 1 Admin attempts to view Tenant 2 queue
@@ -519,6 +557,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("blocks normal USER role from executing admin APIs", async () => {
       const u = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
 
       const adminDoneRes = await request(app)
@@ -541,6 +580,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("prevents modifying or re-completing an already completed entry", async () => {
       const u = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
 
       // Mark DONE first time
@@ -566,12 +606,14 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("sets serviceStartedAt on position #1 upon join", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       expect(u1.body.entry.position).toBe(1);
       expect(u1.body.entry.serviceStartedAt).toBeTruthy();
 
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
       expect(u2.body.entry.position).toBe(2);
       expect(u2.body.entry.serviceStartedAt).toBeFalsy();
@@ -598,6 +640,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
       // User A joins at #1
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       expect(u1.body.entry.position).toBe(1);
       expect(u1.body.peopleAhead).toBe(0);
@@ -606,6 +649,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
       // User B joins at #2
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
       expect(u2.body.entry.position).toBe(2);
       expect(u2.body.peopleAhead).toBe(1);
@@ -614,6 +658,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
       // User C joins at #3
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User C" });
       expect(u3.body.entry.position).toBe(3);
       expect(u3.body.peopleAhead).toBe(2);
@@ -623,9 +668,11 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("returns estimatedWaitMinutes = null when no completed entries exist", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" }); // #1
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" }); // #2
 
       expect(u1.body.estimatedWaitMinutes).toBe(0);
@@ -635,9 +682,11 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("promotes #2 to #1 and sets serviceStartedAt when #1 completes", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User A" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User B" });
 
       // Complete User A
@@ -659,10 +708,11 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("ensures public queue endpoints supply all data required for client-side realtime notifications", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Darshan", phone: "+919876543210" });
 
       expect(u1.statusCode).toBe(201);
-      expect(u1.body.entry.name).toBe("Darshan");
+      expect(u1.body.entry.name).toBe("User One");
       expect(u1.body.entry.position).toBe(1);
       expect(u1.body.sessionToken).toBeTruthy();
       expect(u1.body.queueName).toBe("Main Queue");
@@ -671,6 +721,7 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("verifies session token security: unauthorized token cannot fetch status", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "Alice" });
 
       const fakeTokenRes = await request(app)
@@ -683,12 +734,15 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
     it("verifies position progression (#3 -> #2 -> #1) through queue completion steps", async () => {
       const u1 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User 1" });
       const u2 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User 2" });
       const u3 = await request(app)
         .post("/api/queues/queue-1/join")
+        .set("Authorization", `Bearer ${userTokenTenant1}`)
         .send({ name: "User 3" });
 
       expect(u1.body.entry.position).toBe(1);

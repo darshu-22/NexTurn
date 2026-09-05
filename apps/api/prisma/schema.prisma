@@ -32,12 +32,13 @@ model User {
   email        String?
   phone        String?
   passwordHash String?  @map("password_hash")
-  role         String   @default("USER") // PLATFORM_ADMIN, ORGANIZATION_ADMIN, QUEUE_OPERATOR, USER
+  role         String   @default("USER") // SUPER_ADMIN, ADMIN, USER
   status       String   @default("ACTIVE")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  queueEntries QueueEntry[]
 
   @@map("users")
 }
@@ -62,6 +63,7 @@ model QueueEntry {
   id               String    @id @default(uuid())
   tenantId         String    @map("tenant_id")
   queueId          String    @map("queue_id")
+  userId           String?   @map("user_id")
   name             String
   phone            String?
   status           String    @default("WAITING") // WAITING, COMPLETED, CANCELLED
@@ -75,9 +77,11 @@ model QueueEntry {
 
   tenant Tenant       @relation(fields: [tenantId], references: [id])
   queue  Queue        @relation(fields: [queueId], references: [id])
+  user   User?        @relation(fields: [userId], references: [id])
   events QueueEvent[]
 
   @@index([tenantId])
+  @@index([userId])
   @@index([queueId, status])
   @@index([queueId, position])
   @@map("queue_entries")

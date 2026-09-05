@@ -174,7 +174,60 @@ All 28 screenshot artifacts have been generated in `docs/screenshots/` and verif
 
 ---
 
-## 14. Conclusion & Commit Statement
+## 11. Phase 6 — Authentication & Role-Based Access Control (RBAC) Verification
+
+### 11.1 Unified Single-Website Architecture
+
+- **Single Portal**: NexTurn operates as **ONE unified website/application** for all roles (`SUPER_ADMIN`, `ADMIN`, `USER`).
+- **Unified Login**: All users log in via `/login`. Role-based routing directs authenticated users to their corresponding dashboard:
+  - `SUPER_ADMIN` $\rightarrow$ `/super-admin`
+  - `ADMIN` $\rightarrow$ `/admin/dashboard`
+  - `USER` $\rightarrow$ `/dashboard`
+- **Customer Self-Registration**: Public signup (`/signup`) automatically assigns role `USER`. Client requests cannot specify or escalate to `ADMIN` or `SUPER_ADMIN`.
+
+### 11.2 Role Hierarchy & Enforcement
+
+- **SUPER_ADMIN**: Exactly 1 per tenant. Provisioned via secure environment bootstrap (`SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`). Can create, view, and disable `ADMIN` accounts. Cannot create another `SUPER_ADMIN`.
+- **ADMIN**: N per tenant. Created exclusively by `SUPER_ADMIN`. Manages queue operations (Create queue, QR generation, DONE, REMOVE, REORDER). Cannot manage admin accounts.
+- **USER**: N per tenant. Self-registers via public signup. Authenticated users joining queues auto-populate stored profile data (`name`, `phone`) and associate `userId` with `QueueEntry`. Can view, cancel, or complete own entries; cannot modify other users' entries.
+
+### 11.3 Auth & RBAC Matrix Verification Results
+
+| Operation / Feature           | SUPER_ADMIN | ADMIN | USER | Backend Enforcement Result  |
+| :---------------------------- | :---------: | :---: | :--: | :-------------------------- |
+| **Login**                     |     YES     |  YES  | YES  | `200 OK`                    |
+| **Signup**                    |     NO*     |  NO*  | YES  | `201 Created (forced USER)` |
+| **Create Admin**              |     YES     |  NO   |  NO  | `403 Forbidden` for non-SA  |
+| **Manage / Disable Admins**   |     YES     |  NO   |  NO  | `403 Forbidden` for non-SA  |
+| **Create Queue**              |     YES     |  YES  |  NO  | `403 Forbidden` for USER    |
+| **Generate QR**               |     YES     |  YES  |  NO  | `403 Forbidden` for USER    |
+| **View Queue Admin View**     |     YES     |  YES  |  NO  | `403 Forbidden` for USER    |
+| **Reorder Queue**             |     YES     |  YES  |  NO  | `403 Forbidden` for USER    |
+| **DONE / REMOVE Queue Entry** |     YES     |  YES  |  NO  | `403 Forbidden` for USER    |
+| **Join Queue**                |     N/A     |  N/A  | YES  | Auto-populates user data    |
+| **View Own Queue Entry**      |     N/A     |  N/A  | YES  | `200 OK`                    |
+| **Cancel Own Queue Entry**    |     N/A     |  N/A  | YES  | `200 OK`                    |
+| **Complete Own Queue Entry**  |     N/A     |  N/A  | YES  | `200 OK`                    |
+
+_\* SUPER_ADMIN is created only via secure environment bootstrap. Public signup always creates role `USER`._
+
+---
+
+## 12. Phase 6 PostgreSQL Migration & Verification Summary
+
+1. **Database Schema & Migration**:
+   - `schema.prisma`: Updated `QueueEntry` with optional `userId` foreign key referencing `User`.
+   - Migration `20260904000000_phase6_rbac_user_entries` deployed cleanly to Supabase PostgreSQL (`prisma migrate deploy`).
+   - Prisma Client regenerated successfully (`prisma generate`).
+2. **Jest API & RBAC Test Suite**:
+   - **25 / 25 passed** (`auth.test.ts` and `queue.test.ts`).
+3. **TypeScript & Build Verification**:
+   - API TypeScript validation (`tsc --noEmit`): 0 errors.
+   - Next.js Web Production Build (`next build`): Compiled successfully.
+
+---
+
+## 13. Conclusion & Commit Statement
 
 The NexTurn real-time queue management application has passed 100% of end-to-end verification tests across database concurrency, real-time WebSocket state synchronization, website notifications, service duration-based ETA, responsive UI layouts, and security authorization boundaries.
 
