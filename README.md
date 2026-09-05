@@ -5,6 +5,7 @@
 ---
 
 ## Table of Contents
+
 - [Project Overview](#project-overview)
 - [Problem Statement](#problem-statement)
 - [The Solution](#the-solution)
@@ -69,18 +70,21 @@ NexTurn addresses these challenges with a modern, web-based digital queue infras
 ## Key Features
 
 ### 🔐 Authentication & Session Management
+
 - **Unified Login Portal**: Single login interface (`/login`) routing authenticated users according to their role (`SUPER_ADMIN`, `ADMIN`, `USER`).
 - **Public Customer Signup**: Instant account creation (`/signup`) restricted strictly to the `USER` role.
 - **JWT & Password Hashing**: JSON Web Tokens for authorization and `bcryptjs` hashing for secure password storage.
 - **Session Persistence**: Browser `localStorage` session token hash ensures customer queue status persists across page refreshes and browser restarts.
 
 ### 🛡️ Role-Based Access Control (RBAC)
+
 - **Role Hierarchy**: `SUPER_ADMIN` > `ADMIN` > `USER`.
 - **Single Super Admin Guarantee**: Exactly one `SUPER_ADMIN` per tenant, created via secure environment bootstrap (`SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`).
 - **Admin Delegation**: Super Admin can create, inspect, and disable `ADMIN` accounts within their tenant.
 - **Backend-Enforced Authorization**: All API endpoints independently authorize incoming requests against tenant and role constraints.
 
 ### 📋 Queue Management & Engine
+
 - **First-Come, First-Served (FCFS)**: Deterministic, monotonic queue position assignment (`#1, #2, #3`).
 - **Atomic Concurrency Protection**: Database row-level locking and transaction serializability prevent position collision or duplicate numbering during concurrent joins.
 - **Automatic Queue Compaction**: When an entry is completed, cancelled, or removed, downstream positions automatically compact upward (`#3 -> #2`, `#2 -> #1`) without gaps.
@@ -88,22 +92,26 @@ NexTurn addresses these challenges with a modern, web-based digital queue infras
 - **Customer Self-Service**: Customers can track position, view wait estimates, or cancel (`CANCEL`) their queue entry at any time.
 
 ### 📷 Camera QR Scanner & Entry Flow
+
 - **Admin QR Generation**: Admins generate SVG/PNG QR codes encoding the public customer URL (`/queue/[queueId]`).
 - **In-Website Camera Scanner**: Built-in camera scanner modal powered by `html5-qrcode` requesting browser camera permissions (`facingMode: "environment"`).
 - **Auto Navigation**: Automatically detects NexTurn QR codes and redirects users directly to the corresponding queue page.
 - **Manual Fallback**: Provides a text input fallback for devices without camera access or when camera permission is denied.
 
 ### ⚡ Real-Time WebSockets
+
 - **Socket.IO Transport**: Bidirectional real-time communication between Express backend and Next.js frontend.
 - **Room-Based Subscriptions**: Clients subscribe to tenant and queue rooms for targeted event broadcasts.
 - **Automatic Reconnection**: Reconnects and resynchronizes queue state automatically upon network interruption.
 
 ### ⏱️ Service-Duration Based ETA
+
 - **Accurate Service Tracking**: Captures `serviceStartedAt` when an entry reaches position `#1` and `completedAt` upon completion.
 - **Pure Service Duration**: Measures actual service time per customer (`completedAt - serviceStartedAt`), preventing queue waiting time from distorting metrics.
 - **Rolling Average**: Calculates estimated wait times using a 10-entry rolling average of completed service durations (with a 5-minute fallback per person).
 
 ### 🔔 Website-Only Real-Time Notifications
+
 - **Zero Third-Party Dependencies**: Internal WebSocket-driven notification pipeline with no external SMS or messaging service fees.
 - **Position Transition Alerts**: Toasts notify users when their position advances (`#3 -> #2`).
 - **Turn Notification**: Prominent toast notification when reaching position `#1`.
@@ -113,11 +121,11 @@ NexTurn addresses these challenges with a modern, web-based digital queue infras
 
 ## Role-Based Access Control (RBAC)
 
-| Role | Provisioning | Capabilities |
-| :--- | :--- | :--- |
-| **`SUPER_ADMIN`** | Environment Bootstrap | • Provision and manage `ADMIN` accounts<br>• Full tenant management and administrative controls<br>• Access `/super-admin` portal<br>• Perform all Admin queue operations |
-| **`ADMIN`** | Created by `SUPER_ADMIN` | • Create and configure organization queues<br>• Generate public QR codes<br>• Manage active queue entries (`DONE`, `REMOVE`, `REORDER`)<br>• Access `/admin/dashboard` |
-| **`USER`** | Public Self-Signup | • Create customer account<br>• Scan QR codes via built-in camera scanner or open URL<br>• Join queues and receive deterministic positions<br>• Track live position, people ahead, and service ETA<br>• Receive real-time browser notifications<br>• Self-cancel or view own queue entry |
+| Role              | Provisioning             | Capabilities                                                                                                                                                                                                                                                                            |
+| :---------------- | :----------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`SUPER_ADMIN`** | Environment Bootstrap    | • Provision and manage `ADMIN` accounts<br>• Full tenant management and administrative controls<br>• Access `/super-admin` portal<br>• Perform all Admin queue operations                                                                                                               |
+| **`ADMIN`**       | Created by `SUPER_ADMIN` | • Create and configure organization queues<br>• Generate public QR codes<br>• Manage active queue entries (`DONE`, `REMOVE`, `REORDER`)<br>• Access `/admin/dashboard`                                                                                                                  |
+| **`USER`**        | Public Self-Signup       | • Create customer account<br>• Scan QR codes via built-in camera scanner or open URL<br>• Join queues and receive deterministic positions<br>• Track live position, people ahead, and service ETA<br>• Receive real-time browser notifications<br>• Self-cancel or view own queue entry |
 
 ---
 
@@ -198,6 +206,7 @@ graph TD
 ## Tech Stack
 
 ### Frontend (`apps/web`)
+
 - **Framework**: Next.js (App Router), React 19
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
@@ -205,6 +214,7 @@ graph TD
 - **QR Scanner**: `html5-qrcode`
 
 ### Backend (`apps/api`)
+
 - **Runtime**: Node.js (>=18)
 - **Framework**: Express.js
 - **Real-Time Server**: Socket.IO
@@ -213,11 +223,13 @@ graph TD
 - **Security & Utilities**: `jsonwebtoken`, `bcryptjs`, `helmet`, `cors`, `express-rate-limit`, `zod`
 
 ### Monorepo Architecture & Infrastructure
+
 - **Monorepo Manager**: Turborepo, `pnpm` Workspaces
 - **Shared Packages**: `@nexturn/types`, `@nexturn/validation`, `@nexturn/config`, `@nexturn/ui`
 - **Git Hooks & Formatting**: Husky, Prettier
 
 ### Testing & Quality Assurance
+
 - **Unit & Integration Testing**: Jest, Supertest
 - **End-to-End Testing**: Playwright
 
@@ -276,6 +288,7 @@ NexTurn/
 NexTurn uses PostgreSQL managed through Prisma ORM.
 
 ### Data Models
+
 - **`Tenant`**: Represents an organization (`id`, `name`, `slug`, `status`).
 - **`User`**: Accounts scoped to a tenant with assigned roles (`SUPER_ADMIN`, `ADMIN`, `USER`).
 - **`Queue`**: Active queues created under a tenant (`id`, `name`, `status`, `joinEnabled`).
@@ -288,15 +301,15 @@ NexTurn uses PostgreSQL managed through Prisma ORM.
 
 The NexTurn codebase has undergone comprehensive automated testing and product verification:
 
-| Test Suite / Verification Layer | Tool / Framework | Verified Result | Status |
-| :--- | :--- | :--- | :---: |
-| **Backend Unit & Integration Tests** | Jest & Supertest | 25 / 25 Tests Passed | `PASSED` |
-| **End-to-End Automated Flows** | Playwright | Full User Journey Verified | `PASSED` |
-| **Camera QR Scanner E2E Coverage** | Playwright / Headless Chromium | Camera Permissions & Fallback Verified | `PASSED` |
-| **TypeScript Type Safety** | `tsc --noEmit` | 0 Type Errors Across Monorepo | `PASSED` |
-| **Next.js Production Build** | `next build` | Production Bundle Compiled Successfully | `PASSED` |
-| **Turborepo Monorepo Build** | `turbo run build` | All Apps & Packages Built Cleanly | `PASSED` |
-| **Product Verification Audit** | Manual & Automated Flows | 28 Screenshot Evidence Artifacts | `PASSED` |
+| Test Suite / Verification Layer      | Tool / Framework               | Verified Result                         |  Status  |
+| :----------------------------------- | :----------------------------- | :-------------------------------------- | :------: |
+| **Backend Unit & Integration Tests** | Jest & Supertest               | 25 / 25 Tests Passed                    | `PASSED` |
+| **End-to-End Automated Flows**       | Playwright                     | Full User Journey Verified              | `PASSED` |
+| **Camera QR Scanner E2E Coverage**   | Playwright / Headless Chromium | Camera Permissions & Fallback Verified  | `PASSED` |
+| **TypeScript Type Safety**           | `tsc --noEmit`                 | 0 Type Errors Across Monorepo           | `PASSED` |
+| **Next.js Production Build**         | `next build`                   | Production Bundle Compiled Successfully | `PASSED` |
+| **Turborepo Monorepo Build**         | `turbo run build`              | All Apps & Packages Built Cleanly       | `PASSED` |
+| **Product Verification Audit**       | Manual & Automated Flows       | 28 Screenshot Evidence Artifacts        | `PASSED` |
 
 Detailed verification logs and screenshot evidence are documented in [`docs/verification-report.md`](file:///c:/Users/darsh/OneDrive/Desktop/Projects/NexTurn/docs/verification-report.md).
 
@@ -330,6 +343,7 @@ NEXT_PUBLIC_API_URL="http://localhost:4000"
 ## Local Development Setup
 
 ### Prerequisites
+
 - **Node.js**: `>=18.0.0`
 - **Package Manager**: `pnpm` (`v11.25.0` recommended)
 - **Database**: PostgreSQL database instance
@@ -337,22 +351,26 @@ NEXT_PUBLIC_API_URL="http://localhost:4000"
 ### Setup Instructions
 
 1. **Clone the Repository**
+
    ```bash
    git clone https://github.com/darshu-22/NexTurn.git
    cd NexTurn
    ```
 
 2. **Install Dependencies**
+
    ```bash
    pnpm install
    ```
 
 3. **Configure Environment Variables**
+
    ```bash
    cp .env.example .env
    ```
 
 4. **Generate Prisma Client & Apply Database Migrations**
+
    ```bash
    # Generate Prisma Client
    pnpm --filter @nexturn/api db:generate
@@ -362,6 +380,7 @@ NEXT_PUBLIC_API_URL="http://localhost:4000"
    ```
 
 5. **Start Development Servers**
+
    ```bash
    pnpm dev
    ```
@@ -391,6 +410,7 @@ NEXT_PUBLIC_API_URL="http://localhost:4000"
 ## Project Verification Status
 
 The current NexTurn core implementation has completed:
+
 - [x] Unified Authentication & Customer Signup
 - [x] Multi-Tenant Role-Based Access Control (RBAC)
 - [x] First-Come, First-Served Queue Engine with Concurrency Safety
@@ -402,13 +422,14 @@ The current NexTurn core implementation has completed:
 - [x] Security Audit & Zero-Secrets Verification
 - [x] Automated Unit, Integration, and E2E Test Verification
 
-*Note: Production cloud deployment setup is ready for execution as a subsequent milestone.*
+_Note: Production cloud deployment setup is ready for execution as a subsequent milestone._
 
 ---
 
 ## Future Improvements
 
 Planned future enhancements:
+
 - [ ] PWA Web Push / Web Notifications API for background browser tab alerts
 - [ ] Advanced Queue Analytics & Peak-Hour Performance Dashboard
 - [ ] Multi-Language (i18n) Support
