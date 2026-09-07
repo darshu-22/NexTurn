@@ -6,7 +6,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import dotenv from "dotenv";
 import crypto from "crypto";
 import {
@@ -124,7 +124,7 @@ export function hashToken(token: string) {
 export async function calculateQueueETA(
   queueId: string,
   position: number,
-  txClient: any = prisma,
+  txClient: Prisma.TransactionClient | PrismaClient = prisma,
 ) {
   const peopleAhead = Math.max(0, position - 1);
 
@@ -176,7 +176,7 @@ export async function calculateQueueETA(
 // Helper: Update front of queue serviceStartedAt timestamp
 export async function updateFrontOfQueueServiceStart(
   queueId: string,
-  txClient: any = prisma,
+  txClient: Prisma.TransactionClient | PrismaClient = prisma,
 ) {
   const frontEntry = await txClient.queueEntry.findFirst({
     where: { queueId, status: "WAITING", position: 1 },
@@ -837,57 +837,59 @@ app.post(
 
       const { rawToken, tokenHash } = generateSessionToken();
 
-      const result = await prisma.$transaction(async (tx) => {
-        try {
-          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${queueId} FOR UPDATE`;
-        } catch (err) {}
+      const result = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          try {
+            await tx.$executeRaw`SELECT id FROM queues WHERE id = ${queueId} FOR UPDATE`;
+          } catch (err) {}
 
-        const lastEntry = await tx.queueEntry.findFirst({
-          where: { queueId, status: "WAITING" },
-          orderBy: { position: "desc" },
-          select: { position: true },
-        });
-        const nextPosition = (lastEntry?.position || 0) + 1;
-        const serviceStartedAt = nextPosition === 1 ? new Date() : null;
+          const lastEntry = await tx.queueEntry.findFirst({
+            where: { queueId, status: "WAITING" },
+            orderBy: { position: "desc" },
+            select: { position: true },
+          });
+          const nextPosition = (lastEntry?.position || 0) + 1;
+          const serviceStartedAt = nextPosition === 1 ? new Date() : null;
 
-        const newEntry = await tx.queueEntry.create({
-          data: {
-            tenantId: queue.tenantId,
-            queueId,
-            userId: userObj.id,
-            name,
-            phone,
-            status: "WAITING",
-            position: nextPosition,
-            sessionTokenHash: tokenHash,
-            serviceStartedAt,
-          },
-        });
-
-        await tx.queueEvent.create({
-          data: {
-            tenantId: queue.tenantId,
-            queueId,
-            queueEntryId: newEntry.id,
-            eventType: "QUEUE_JOINED",
-            actorRole: "USER",
-            payload: JSON.stringify({
+          const newEntry = await tx.queueEntry.create({
+            data: {
+              tenantId: queue.tenantId,
+              queueId,
+              userId: userObj.id,
+              name,
+              phone,
+              status: "WAITING",
               position: nextPosition,
-              name: newEntry.name,
-            }),
-          },
-        });
+              sessionTokenHash: tokenHash,
+              serviceStartedAt,
+            },
+          });
 
-        const eta = await calculateQueueETA(queueId, nextPosition, tx);
+          await tx.queueEvent.create({
+            data: {
+              tenantId: queue.tenantId,
+              queueId,
+              queueEntryId: newEntry.id,
+              eventType: "QUEUE_JOINED",
+              actorRole: "USER",
+              payload: JSON.stringify({
+                position: nextPosition,
+                name: newEntry.name,
+              }),
+            },
+          });
 
-        return {
-          entry: newEntry,
-          rawToken,
-          peopleAhead: eta.peopleAhead,
-          averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
-          estimatedWaitMinutes: eta.estimatedWaitMinutes,
-        };
-      });
+          const eta = await calculateQueueETA(queueId, nextPosition, tx);
+
+          return {
+            entry: newEntry,
+            rawToken,
+            peopleAhead: eta.peopleAhead,
+            averageServiceDurationMinutes: eta.averageServiceDurationMinutes,
+            estimatedWaitMinutes: eta.estimatedWaitMinutes,
+          };
+        },
+      );
 
       // Realtime notifications
       io.to(`queue:${queueId}`).emit("queue:entry_joined", {
@@ -1050,49 +1052,51 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
         .json({ error: `Cannot complete entry with status ${entry.status}` });
     }
 
-    const updatedEntry = await prisma.$transaction(async (tx) => {
-      try {
-        await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
-      } catch (err) {}
+    const updatedEntry = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        try {
+          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
+        } catch (err) {}
 
-      const completed = await tx.queueEntry.update({
-        where: { id: entry.id },
-        data: {
-          status: "COMPLETED",
-          completedAt: new Date(),
-        },
-      });
+        const completed = await tx.queueEntry.update({
+          where: { id: entry.id },
+          data: {
+            status: "COMPLETED",
+            completedAt: new Date(),
+          },
+        });
 
-      const remaining = await tx.queueEntry.findMany({
-        where: { queueId: entry.queueId, status: "WAITING" },
-        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-      });
+        const remaining = await tx.queueEntry.findMany({
+          where: { queueId: entry.queueId, status: "WAITING" },
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+        });
 
-      for (let i = 0; i < remaining.length; i++) {
-        const newPos = i + 1;
-        if (remaining[i].position !== newPos) {
-          await tx.queueEntry.update({
-            where: { id: remaining[i].id },
-            data: { position: newPos },
-          });
+        for (let i = 0; i < remaining.length; i++) {
+          const newPos = i + 1;
+          if (remaining[i].position !== newPos) {
+            await tx.queueEntry.update({
+              where: { id: remaining[i].id },
+              data: { position: newPos },
+            });
+          }
         }
-      }
 
-      await updateFrontOfQueueServiceStart(entry.queueId, tx);
+        await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
-      await tx.queueEvent.create({
-        data: {
-          tenantId: entry.tenantId,
-          queueId: entry.queueId,
-          queueEntryId: entry.id,
-          eventType: "QUEUE_COMPLETED",
-          actorRole: authUser?.role || "USER",
-          payload: JSON.stringify({ previousPosition: entry.position }),
-        },
-      });
+        await tx.queueEvent.create({
+          data: {
+            tenantId: entry.tenantId,
+            queueId: entry.queueId,
+            queueEntryId: entry.id,
+            eventType: "QUEUE_COMPLETED",
+            actorRole: authUser?.role || "USER",
+            payload: JSON.stringify({ previousPosition: entry.position }),
+          },
+        });
 
-      return completed;
-    });
+        return completed;
+      },
+    );
 
     broadcastQueueUpdate(entry.queueId);
 
@@ -1149,49 +1153,51 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
         .json({ error: `Cannot cancel entry with status ${entry.status}` });
     }
 
-    const cancelledEntry = await prisma.$transaction(async (tx) => {
-      try {
-        await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
-      } catch (err) {}
+    const cancelledEntry = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        try {
+          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
+        } catch (err) {}
 
-      const cancelled = await tx.queueEntry.update({
-        where: { id: entry.id },
-        data: {
-          status: "CANCELLED",
-          cancelledAt: new Date(),
-        },
-      });
+        const cancelled = await tx.queueEntry.update({
+          where: { id: entry.id },
+          data: {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
+          },
+        });
 
-      const remaining = await tx.queueEntry.findMany({
-        where: { queueId: entry.queueId, status: "WAITING" },
-        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-      });
+        const remaining = await tx.queueEntry.findMany({
+          where: { queueId: entry.queueId, status: "WAITING" },
+          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+        });
 
-      for (let i = 0; i < remaining.length; i++) {
-        const newPos = i + 1;
-        if (remaining[i].position !== newPos) {
-          await tx.queueEntry.update({
-            where: { id: remaining[i].id },
-            data: { position: newPos },
-          });
+        for (let i = 0; i < remaining.length; i++) {
+          const newPos = i + 1;
+          if (remaining[i].position !== newPos) {
+            await tx.queueEntry.update({
+              where: { id: remaining[i].id },
+              data: { position: newPos },
+            });
+          }
         }
-      }
 
-      await updateFrontOfQueueServiceStart(entry.queueId, tx);
+        await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
-      await tx.queueEvent.create({
-        data: {
-          tenantId: entry.tenantId,
-          queueId: entry.queueId,
-          queueEntryId: entry.id,
-          eventType: "QUEUE_CANCELLED",
-          actorRole: "USER",
-          payload: JSON.stringify({ previousPosition: entry.position }),
-        },
-      });
+        await tx.queueEvent.create({
+          data: {
+            tenantId: entry.tenantId,
+            queueId: entry.queueId,
+            queueEntryId: entry.id,
+            eventType: "QUEUE_CANCELLED",
+            actorRole: "USER",
+            payload: JSON.stringify({ previousPosition: entry.position }),
+          },
+        });
 
-      return cancelled;
-    });
+        return cancelled;
+      },
+    );
 
     broadcastQueueUpdate(entry.queueId);
 
@@ -1278,50 +1284,52 @@ app.post(
           .json({ error: `Cannot complete entry with status ${entry.status}` });
       }
 
-      const completedEntry = await prisma.$transaction(async (tx) => {
-        try {
-          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
-        } catch (err) {}
+      const completedEntry = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          try {
+            await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
+          } catch (err) {}
 
-        const updated = await tx.queueEntry.update({
-          where: { id: entry.id },
-          data: {
-            status: "COMPLETED",
-            completedAt: new Date(),
-          },
-        });
+          const updated = await tx.queueEntry.update({
+            where: { id: entry.id },
+            data: {
+              status: "COMPLETED",
+              completedAt: new Date(),
+            },
+          });
 
-        const remaining = await tx.queueEntry.findMany({
-          where: { queueId: entry.queueId, status: "WAITING" },
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        });
+          const remaining = await tx.queueEntry.findMany({
+            where: { queueId: entry.queueId, status: "WAITING" },
+            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          });
 
-        for (let i = 0; i < remaining.length; i++) {
-          const newPos = i + 1;
-          if (remaining[i].position !== newPos) {
-            await tx.queueEntry.update({
-              where: { id: remaining[i].id },
-              data: { position: newPos },
-            });
+          for (let i = 0; i < remaining.length; i++) {
+            const newPos = i + 1;
+            if (remaining[i].position !== newPos) {
+              await tx.queueEntry.update({
+                where: { id: remaining[i].id },
+                data: { position: newPos },
+              });
+            }
           }
-        }
 
-        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+          await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
-        await tx.queueEvent.create({
-          data: {
-            tenantId: entry.tenantId,
-            queueId: entry.queueId,
-            queueEntryId: entry.id,
-            eventType: "QUEUE_COMPLETED",
-            actorId: req.user!.id,
-            actorRole: req.user!.role,
-            payload: JSON.stringify({ previousPosition: entry.position }),
-          },
-        });
+          await tx.queueEvent.create({
+            data: {
+              tenantId: entry.tenantId,
+              queueId: entry.queueId,
+              queueEntryId: entry.id,
+              eventType: "QUEUE_COMPLETED",
+              actorId: req.user!.id,
+              actorRole: req.user!.role,
+              payload: JSON.stringify({ previousPosition: entry.position }),
+            },
+          });
 
-        return updated;
-      });
+          return updated;
+        },
+      );
 
       broadcastQueueUpdate(entry.queueId);
 
@@ -1355,50 +1363,52 @@ app.post(
           .json({ error: `Cannot remove entry with status ${entry.status}` });
       }
 
-      const removedEntry = await prisma.$transaction(async (tx) => {
-        try {
-          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
-        } catch (err) {}
+      const removedEntry = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          try {
+            await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
+          } catch (err) {}
 
-        const cancelled = await tx.queueEntry.update({
-          where: { id: entry.id },
-          data: {
-            status: "CANCELLED",
-            cancelledAt: new Date(),
-          },
-        });
+          const cancelled = await tx.queueEntry.update({
+            where: { id: entry.id },
+            data: {
+              status: "CANCELLED",
+              cancelledAt: new Date(),
+            },
+          });
 
-        const remaining = await tx.queueEntry.findMany({
-          where: { queueId: entry.queueId, status: "WAITING" },
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        });
+          const remaining = await tx.queueEntry.findMany({
+            where: { queueId: entry.queueId, status: "WAITING" },
+            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+          });
 
-        for (let i = 0; i < remaining.length; i++) {
-          const newPos = i + 1;
-          if (remaining[i].position !== newPos) {
-            await tx.queueEntry.update({
-              where: { id: remaining[i].id },
-              data: { position: newPos },
-            });
+          for (let i = 0; i < remaining.length; i++) {
+            const newPos = i + 1;
+            if (remaining[i].position !== newPos) {
+              await tx.queueEntry.update({
+                where: { id: remaining[i].id },
+                data: { position: newPos },
+              });
+            }
           }
-        }
 
-        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+          await updateFrontOfQueueServiceStart(entry.queueId, tx);
 
-        await tx.queueEvent.create({
-          data: {
-            tenantId: entry.tenantId,
-            queueId: entry.queueId,
-            queueEntryId: entry.id,
-            eventType: "QUEUE_REMOVED",
-            actorId: req.user!.id,
-            actorRole: req.user!.role,
-            payload: JSON.stringify({ previousPosition: entry.position }),
-          },
-        });
+          await tx.queueEvent.create({
+            data: {
+              tenantId: entry.tenantId,
+              queueId: entry.queueId,
+              queueEntryId: entry.id,
+              eventType: "QUEUE_REMOVED",
+              actorId: req.user!.id,
+              actorRole: req.user!.role,
+              payload: JSON.stringify({ previousPosition: entry.position }),
+            },
+          });
 
-        return cancelled;
-      });
+          return cancelled;
+        },
+      );
 
       broadcastQueueUpdate(entry.queueId);
 
@@ -1435,62 +1445,66 @@ app.post(
           .json({ error: "Can only reorder WAITING queue entries" });
       }
 
-      const reorderedResult = await prisma.$transaction(async (tx) => {
-        try {
-          await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
-        } catch (err) {}
+      const reorderedResult = await prisma.$transaction(
+        async (tx: Prisma.TransactionClient) => {
+          try {
+            await tx.$executeRaw`SELECT id FROM queues WHERE id = ${entry.queueId} FOR UPDATE`;
+          } catch (err) {}
 
-        const waitingEntries = await tx.queueEntry.findMany({
-          where: { queueId: entry.queueId, status: "WAITING" },
-          orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        });
-
-        const currentIndex = waitingEntries.findIndex((e) => e.id === entry.id);
-        if (currentIndex === -1) {
-          throw new Error("Entry not active");
-        }
-
-        const validTargetIndex = Math.max(
-          0,
-          Math.min(targetPosition - 1, waitingEntries.length - 1),
-        );
-
-        const [moved] = waitingEntries.splice(currentIndex, 1);
-        waitingEntries.splice(validTargetIndex, 0, moved);
-
-        for (let i = 0; i < waitingEntries.length; i++) {
-          const newPos = i + 1;
-          await tx.queueEntry.update({
-            where: { id: waitingEntries[i].id },
-            data: { position: newPos },
+          const waitingEntries = await tx.queueEntry.findMany({
+            where: { queueId: entry.queueId, status: "WAITING" },
+            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
           });
-        }
 
-        await updateFrontOfQueueServiceStart(entry.queueId, tx);
+          const currentIndex = waitingEntries.findIndex(
+            (e: { id: string }) => e.id === entry.id,
+          );
+          if (currentIndex === -1) {
+            throw new Error("Entry not active");
+          }
 
-        const newPos = validTargetIndex + 1;
+          const validTargetIndex = Math.max(
+            0,
+            Math.min(targetPosition - 1, waitingEntries.length - 1),
+          );
 
-        await tx.queueEvent.create({
-          data: {
-            tenantId: entry.tenantId,
-            queueId: entry.queueId,
-            queueEntryId: entry.id,
-            eventType: "QUEUE_REORDERED",
-            actorId: req.user!.id,
-            actorRole: req.user!.role,
-            payload: JSON.stringify({
-              fromPosition: entry.position,
-              toPosition: newPos,
-            }),
-          },
-        });
+          const [moved] = waitingEntries.splice(currentIndex, 1);
+          waitingEntries.splice(validTargetIndex, 0, moved);
 
-        return {
-          id: entry.id,
-          previousPosition: entry.position,
-          newPosition: newPos,
-        };
-      });
+          for (let i = 0; i < waitingEntries.length; i++) {
+            const newPos = i + 1;
+            await tx.queueEntry.update({
+              where: { id: waitingEntries[i].id },
+              data: { position: newPos },
+            });
+          }
+
+          await updateFrontOfQueueServiceStart(entry.queueId, tx);
+
+          const newPos = validTargetIndex + 1;
+
+          await tx.queueEvent.create({
+            data: {
+              tenantId: entry.tenantId,
+              queueId: entry.queueId,
+              queueEntryId: entry.id,
+              eventType: "QUEUE_REORDERED",
+              actorId: req.user!.id,
+              actorRole: req.user!.role,
+              payload: JSON.stringify({
+                fromPosition: entry.position,
+                toPosition: newPos,
+              }),
+            },
+          });
+
+          return {
+            id: entry.id,
+            previousPosition: entry.position,
+            newPosition: newPos,
+          };
+        },
+      );
 
       broadcastQueueUpdate(entry.queueId);
 
