@@ -1521,9 +1521,10 @@ app.post(
 );
 
 if (process.env.NODE_ENV !== "test") {
-  bootstrapSuperAdmin().then(() => {
-    httpServer.listen(PORT, () => {
-      console.log(`API server running on http://localhost:${PORT}`);
+  httpServer.listen(PORT, () => {
+    console.log(`API server running on port ${PORT}`);
+    bootstrapSuperAdmin().catch((err) => {
+      console.error("Super Admin bootstrap error:", err);
     });
   });
 }
