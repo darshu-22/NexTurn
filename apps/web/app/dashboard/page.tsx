@@ -43,8 +43,14 @@ export default function UserDashboard() {
     setLoading(true);
     setLoadingMsg("Loading your queues…");
 
-    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
-    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+    const timer1 = setTimeout(
+      () => setLoadingMsg("Connecting to NexTurn…"),
+      3000,
+    );
+    const timer2 = setTimeout(
+      () => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"),
+      7000,
+    );
 
     try {
       const res = await fetch(`${API_BASE}/auth/me`, {
@@ -71,7 +77,9 @@ export default function UserDashboard() {
     } catch (err: any) {
       console.error(err);
       if (err.name === "TypeError" || err.message?.includes("fetch")) {
-        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+        setError(
+          "Unable to connect to NexTurn. Please check your connection and try again.",
+        );
       } else {
         setError(err.message || "Failed to load dashboard data.");
       }

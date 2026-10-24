@@ -191,8 +191,17 @@ export default function PublicQueuePage() {
     setLoadingQueue(true);
     setLoadingQueueMsg("Loading queue…");
 
-    const timer1 = setTimeout(() => setLoadingQueueMsg("Connecting to NexTurn…"), 3000);
-    const timer2 = setTimeout(() => setLoadingQueueMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+    const timer1 = setTimeout(
+      () => setLoadingQueueMsg("Connecting to NexTurn…"),
+      3000,
+    );
+    const timer2 = setTimeout(
+      () =>
+        setLoadingQueueMsg(
+          "NexTurn is waking up. This may take a few seconds…",
+        ),
+      7000,
+    );
 
     try {
       const res = await fetch(`${API_BASE}/queues/${queueId}/public`);
@@ -204,7 +213,9 @@ export default function PublicQueuePage() {
       }
     } catch (err: any) {
       if (err.name === "TypeError" || err.message?.includes("fetch")) {
-        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+        setError(
+          "Unable to connect to NexTurn. Please check your connection and try again.",
+        );
       } else {
         setError(err.message || "Unable to connect to queue service");
       }
@@ -272,8 +283,14 @@ export default function PublicQueuePage() {
     setJoining(true);
     setJoiningMsg("Joining queue…");
 
-    const timer1 = setTimeout(() => setJoiningMsg("Connecting to NexTurn…"), 3000);
-    const timer2 = setTimeout(() => setJoiningMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+    const timer1 = setTimeout(
+      () => setJoiningMsg("Connecting to NexTurn…"),
+      3000,
+    );
+    const timer2 = setTimeout(
+      () => setJoiningMsg("NexTurn is waking up. This may take a few seconds…"),
+      7000,
+    );
 
     try {
       const headers: Record<string, string> = {
@@ -345,7 +362,9 @@ export default function PublicQueuePage() {
       }
     } catch (err: any) {
       if (err.name === "TypeError" || err.message?.includes("fetch")) {
-        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+        setError(
+          "Unable to connect to NexTurn. Please check your connection and try again.",
+        );
       } else {
         setError(err.message || "An error occurred while joining");
       }

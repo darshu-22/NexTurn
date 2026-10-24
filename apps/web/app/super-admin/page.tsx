@@ -67,7 +67,9 @@ export default function SuperAdminDashboard() {
     if (!token) return;
 
     if (phone.trim() && !/^(\+?[0-9\s\-()]{7,20})$/.test(phone.trim())) {
-      setError("Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).");
+      setError(
+        "Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).",
+      );
       return;
     }
 

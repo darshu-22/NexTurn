@@ -33,7 +33,11 @@ export const QueueCreateSchema = z.object({
 });
 
 export const JoinQueueSchema = z.object({
-  name: z.string().trim().min(2, "Name must be at least 2 characters").optional(),
+  name: z
+    .string()
+    .trim()
+    .min(2, "Name must be at least 2 characters")
+    .optional(),
   phone: PhoneSchema,
 });
 

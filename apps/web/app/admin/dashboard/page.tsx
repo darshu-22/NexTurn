@@ -118,7 +118,10 @@ export default function AdminDashboard() {
         }
       } else {
         const errData = await res.json().catch(() => ({}));
-        setError(errData.error || "Failed to load queues. Access denied or server unavailable.");
+        setError(
+          errData.error ||
+            "Failed to load queues. Access denied or server unavailable.",
+        );
       }
     } catch (err: any) {
       console.error("Failed to fetch queues", err);
@@ -470,9 +473,12 @@ export default function AdminDashboard() {
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {entries.map((entry) => {
-                            const isMoving = activeActionId === `reorder-${entry.id}`;
-                            const isCompleting = activeActionId === `done-${entry.id}`;
-                            const isRemoving = activeActionId === `remove-${entry.id}`;
+                            const isMoving =
+                              activeActionId === `reorder-${entry.id}`;
+                            const isCompleting =
+                              activeActionId === `done-${entry.id}`;
+                            const isRemoving =
+                              activeActionId === `remove-${entry.id}`;
 
                             return (
                               <tr
@@ -502,9 +508,7 @@ export default function AdminDashboard() {
                                           entry.position - 1,
                                         )
                                       }
-                                      disabled={
-                                        isMoving || entry.position <= 1
-                                      }
+                                      disabled={isMoving || entry.position <= 1}
                                       title="Move Up"
                                       className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded text-xs disabled:opacity-30 font-medium"
                                     >
@@ -537,7 +541,9 @@ export default function AdminDashboard() {
                                     </button>
 
                                     <button
-                                      onClick={() => handleAdminRemove(entry.id)}
+                                      onClick={() =>
+                                        handleAdminRemove(entry.id)
+                                      }
                                       disabled={isRemoving || isCompleting}
                                       className="px-3 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-xs font-semibold hover:bg-rose-100 transition disabled:opacity-50"
                                     >
@@ -567,7 +573,9 @@ export default function AdminDashboard() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 text-center space-y-4 animate-in fade-in zoom-in-95 duration-150">
               <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                <h3 className="font-bold text-slate-800 text-lg">Queue QR Code</h3>
+                <h3 className="font-bold text-slate-800 text-lg">
+                  Queue QR Code
+                </h3>
                 <button
                   onClick={() => setShowQrModal(false)}
                   className="text-slate-400 hover:text-slate-600 text-lg font-bold p-1 rounded-lg hover:bg-slate-100 transition"
@@ -578,9 +586,12 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <p className="font-bold text-slate-900 text-base">{activeQueue.name}</p>
+                <p className="font-bold text-slate-900 text-base">
+                  {activeQueue.name}
+                </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  Visitors scan this QR code with their mobile camera to join the virtual queue.
+                  Visitors scan this QR code with their mobile camera to join
+                  the virtual queue.
                 </p>
               </div>
 
@@ -604,7 +615,7 @@ export default function AdminDashboard() {
                     onClick={() => {
                       if (typeof window !== "undefined") {
                         navigator.clipboard.writeText(
-                          `${window.location.origin}/queue/${activeQueue.id}`
+                          `${window.location.origin}/queue/${activeQueue.id}`,
                         );
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);

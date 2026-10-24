@@ -7,17 +7,37 @@ jest.mock("@prisma/client", () => {
     PrismaClient: jest.fn().mockImplementation(() => {
       return {
         tenant: {
-          findFirst: jest.fn().mockResolvedValue({ id: "tenant-1", slug: "demo", status: "ACTIVE" }),
-          findUnique: jest.fn().mockResolvedValue({ id: "tenant-1", slug: "demo", status: "ACTIVE" }),
+          findFirst: jest
+            .fn()
+            .mockResolvedValue({
+              id: "tenant-1",
+              slug: "demo",
+              status: "ACTIVE",
+            }),
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({
+              id: "tenant-1",
+              slug: "demo",
+              status: "ACTIVE",
+            }),
         },
         user: {
           findFirst: jest.fn().mockResolvedValue(null),
           findUnique: jest.fn().mockResolvedValue(null),
-          create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: "user-1", ...data })),
+          create: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ id: "user-1", ...data }),
+            ),
         },
         queue: {
           findMany: jest.fn().mockResolvedValue([]),
-          create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: "q-1", ...data })),
+          create: jest
+            .fn()
+            .mockImplementation(({ data }) =>
+              Promise.resolve({ id: "q-1", ...data }),
+            ),
         },
       };
     }),
@@ -67,37 +87,37 @@ describe("Server Infrastructure & Hardening Regression Tests", () => {
 
     it("CONFIG-03: Rejects zero ('0') with fatal configuration error", () => {
       expect(() => validateTrustProxyHops("0")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be greater than 0/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be greater than 0/,
       );
     });
 
     it("CONFIG-04: Rejects negative values ('-1', '-5') with fatal configuration error", () => {
       expect(() => validateTrustProxyHops("-1")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/,
       );
       expect(() => validateTrustProxyHops("-5")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/,
       );
     });
 
     it("CONFIG-05: Rejects non-integer, decimal, and malformed strings without silent fallback", () => {
       expect(() => validateTrustProxyHops("abc")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/,
       );
       expect(() => validateTrustProxyHops("true")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/,
       );
       expect(() => validateTrustProxyHops("1.5")).toThrow(
-        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/
+        /FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer/,
       );
     });
 
     it("CONFIG-06: Rejects unreasonable hop counts (> 2) to prevent over-trusting and IP spoofing", () => {
       expect(() => validateTrustProxyHops("3")).toThrow(
-        /exceeds maximum safe limit \(2\)\. Excessive hop trust permits client IP spoofing\./
+        /exceeds maximum safe limit \(2\)\. Excessive hop trust permits client IP spoofing\./,
       );
       expect(() => validateTrustProxyHops("99")).toThrow(
-        /exceeds maximum safe limit \(2\)\. Excessive hop trust permits client IP spoofing\./
+        /exceeds maximum safe limit \(2\)\. Excessive hop trust permits client IP spoofing\./,
       );
     });
   });
@@ -157,7 +177,10 @@ describe("Server Infrastructure & Hardening Regression Tests", () => {
       // Attacker prepends multiple forged private/public IPs
       const res = await request(hopTestApp)
         .get("/test/ip")
-        .set("X-Forwarded-For", "10.0.0.1, 172.16.0.1, 192.168.1.1, 203.0.113.195");
+        .set(
+          "X-Forwarded-For",
+          "10.0.0.1, 172.16.0.1, 192.168.1.1, 203.0.113.195",
+        );
 
       expect(res.body.ip).toBe("203.0.113.195");
     });

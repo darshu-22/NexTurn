@@ -23,7 +23,9 @@ export default function SignupPage() {
     setError("");
 
     if (phone.trim() && !/^(\+?[0-9\s\-()]{7,20})$/.test(phone.trim())) {
-      setError("Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).");
+      setError(
+        "Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).",
+      );
       return;
     }
 
@@ -31,9 +33,18 @@ export default function SignupPage() {
     setLoadingMsg("Creating your account…");
 
     // Progressive loading messages for backend cold start responsiveness
-    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
-    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
-    const timer3 = setTimeout(() => setLoadingMsg("Still connecting to NexTurn…"), 12000);
+    const timer1 = setTimeout(
+      () => setLoadingMsg("Connecting to NexTurn…"),
+      3000,
+    );
+    const timer2 = setTimeout(
+      () => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"),
+      7000,
+    );
+    const timer3 = setTimeout(
+      () => setLoadingMsg("Still connecting to NexTurn…"),
+      12000,
+    );
 
     try {
       const res = await fetch(`${API_BASE}/auth/signup`, {
@@ -60,7 +71,9 @@ export default function SignupPage() {
       router.push("/dashboard");
     } catch (err: any) {
       if (err.name === "TypeError" || err.message?.includes("fetch")) {
-        setError("Unable to connect to NexTurn. Please check your network connection and try again.");
+        setError(
+          "Unable to connect to NexTurn. Please check your network connection and try again.",
+        );
       } else {
         setError(err.message || "Registration failed");
       }

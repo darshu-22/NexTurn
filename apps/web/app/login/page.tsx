@@ -23,9 +23,18 @@ export default function UnifiedLogin() {
     setLoadingMsg("Signing in…");
 
     // Progressive loading messages for backend cold start responsiveness
-    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
-    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
-    const timer3 = setTimeout(() => setLoadingMsg("Still connecting to NexTurn…"), 12000);
+    const timer1 = setTimeout(
+      () => setLoadingMsg("Connecting to NexTurn…"),
+      3000,
+    );
+    const timer2 = setTimeout(
+      () => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"),
+      7000,
+    );
+    const timer3 = setTimeout(
+      () => setLoadingMsg("Still connecting to NexTurn…"),
+      12000,
+    );
 
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
@@ -61,7 +70,9 @@ export default function UnifiedLogin() {
       }
     } catch (err: any) {
       if (err.name === "TypeError" || err.message?.includes("fetch")) {
-        setError("Unable to connect to NexTurn. Please check your network connection and try again.");
+        setError(
+          "Unable to connect to NexTurn. Please check your network connection and try again.",
+        );
       } else {
         setError(err.message || "Invalid credentials");
       }

@@ -86,7 +86,7 @@ export function validateTrustProxyHops(rawVal: string | undefined): number {
   // Reject malformed, non-integer, negative, or decimal strings
   if (!/^\d+$/.test(trimmed)) {
     throw new Error(
-      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer. Received: "${rawVal}"`
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer. Received: "${rawVal}"`,
     );
   }
 
@@ -95,7 +95,7 @@ export function validateTrustProxyHops(rawVal: string | undefined): number {
   // Reject zero and negative numbers
   if (!Number.isInteger(hops) || hops <= 0) {
     throw new Error(
-      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be greater than 0. Received: "${rawVal}"`
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be greater than 0. Received: "${rawVal}"`,
     );
   }
 
@@ -104,7 +104,7 @@ export function validateTrustProxyHops(rawVal: string | undefined): number {
   const MAX_PERMITTED_HOPS = 2;
   if (hops > MAX_PERMITTED_HOPS) {
     throw new Error(
-      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS value ${hops} exceeds maximum safe limit (${MAX_PERMITTED_HOPS}). Excessive hop trust permits client IP spoofing.`
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS value ${hops} exceeds maximum safe limit (${MAX_PERMITTED_HOPS}). Excessive hop trust permits client IP spoofing.`,
     );
   }
 
@@ -113,7 +113,9 @@ export function validateTrustProxyHops(rawVal: string | undefined): number {
 
 const app = express();
 
-export const TRUST_PROXY_HOPS = validateTrustProxyHops(process.env.TRUST_PROXY_HOPS);
+export const TRUST_PROXY_HOPS = validateTrustProxyHops(
+  process.env.TRUST_PROXY_HOPS,
+);
 app.set("trust proxy", TRUST_PROXY_HOPS);
 const httpServer = http.createServer(app);
 export const io = new SocketIOServer(httpServer, {
@@ -1075,9 +1077,7 @@ app.get("/api/queue-entries/:id", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN"].includes(
-        authUser.role,
-      );
+      ["SUPER_ADMIN", "ADMIN"].includes(authUser.role);
 
     if (!isTokenMatch && !isUserOwner && !isAdmin) {
       return res
@@ -1139,9 +1139,7 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN"].includes(
-        authUser.role,
-      );
+      ["SUPER_ADMIN", "ADMIN"].includes(authUser.role);
 
     if (!isTokenMatch && !isUserOwner && !isAdmin) {
       return res
@@ -1240,9 +1238,7 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN"].includes(
-        authUser.role,
-      );
+      ["SUPER_ADMIN", "ADMIN"].includes(authUser.role);
 
     if (!isTokenMatch && !isUserOwner && !isAdmin) {
       return res

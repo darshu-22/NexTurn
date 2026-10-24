@@ -76,7 +76,7 @@ export default function QRScannerModal({
             if (isScanningRef.current) {
               setStatusText("Scanning…");
             }
-          }
+          },
         );
 
         isScanningRef.current = true;
@@ -106,7 +106,9 @@ export default function QRScannerModal({
     if (queueId) {
       onScanSuccess(queueId);
     } else {
-      setScannerError("Invalid QR code format. Could not detect a valid Queue ID.");
+      setScannerError(
+        "Invalid QR code format. Could not detect a valid Queue ID.",
+      );
     }
   };
 
@@ -215,7 +217,8 @@ export default function QRScannerModal({
                   {scannerError}
                 </p>
                 <p className="text-xs text-slate-400 max-w-xs">
-                  Please grant camera permission in your browser settings or use manual link entry below.
+                  Please grant camera permission in your browser settings or use
+                  manual link entry below.
                 </p>
               </div>
             )}

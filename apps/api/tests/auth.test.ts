@@ -3,7 +3,12 @@ dotenv.config();
 
 const db = {
   tenants: [
-    { id: "tenant-demo-1", name: "Demo Tenant", slug: "demo", status: "ACTIVE" },
+    {
+      id: "tenant-demo-1",
+      name: "Demo Tenant",
+      slug: "demo",
+      status: "ACTIVE",
+    },
     { id: "tenant-1", name: "Tenant 1", slug: "tenant-1", status: "ACTIVE" },
     { id: "tenant-2", name: "Tenant 2", slug: "tenant-2", status: "ACTIVE" },
   ],
@@ -37,7 +42,12 @@ const db = {
     },
   ],
   queues: [
-    { id: "queue-1", tenantId: "tenant-demo-1", name: "Desk 1", status: "ACTIVE" },
+    {
+      id: "queue-1",
+      tenantId: "tenant-demo-1",
+      name: "Desk 1",
+      status: "ACTIVE",
+    },
   ],
 };
 
@@ -50,9 +60,17 @@ jest.mock("@prisma/client", () => {
             $executeRaw: jest.fn().mockResolvedValue(1),
             queueEntry: {
               findFirst: jest.fn().mockResolvedValue(null),
-              create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: "entry-1", ...data })),
+              create: jest
+                .fn()
+                .mockImplementation(({ data }) =>
+                  Promise.resolve({ id: "entry-1", ...data }),
+                ),
               findMany: jest.fn().mockResolvedValue([]),
-              update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: "entry-1", ...data })),
+              update: jest
+                .fn()
+                .mockImplementation(({ data }) =>
+                  Promise.resolve({ id: "entry-1", ...data }),
+                ),
             },
             queueEvent: {
               create: jest.fn().mockResolvedValue({ id: "event-1" }),
@@ -61,27 +79,43 @@ jest.mock("@prisma/client", () => {
         }),
         tenant: {
           findFirst: jest.fn().mockImplementation(({ where }) => {
-            if (where?.slug) return Promise.resolve(db.tenants.find((t) => t.slug === where.slug) || null);
+            if (where?.slug)
+              return Promise.resolve(
+                db.tenants.find((t) => t.slug === where.slug) || null,
+              );
             return Promise.resolve(db.tenants[0]);
           }),
           findUnique: jest.fn().mockImplementation(({ where }) => {
-            if (where?.slug) return Promise.resolve(db.tenants.find((t) => t.slug === where.slug) || null);
-            if (where?.id) return Promise.resolve(db.tenants.find((t) => t.id === where.id) || null);
+            if (where?.slug)
+              return Promise.resolve(
+                db.tenants.find((t) => t.slug === where.slug) || null,
+              );
+            if (where?.id)
+              return Promise.resolve(
+                db.tenants.find((t) => t.id === where.id) || null,
+              );
             return Promise.resolve(null);
           }),
         },
         user: {
           findFirst: jest.fn().mockImplementation(({ where }) => {
             if (where?.email) {
-              const target = typeof where.email === "object" ? where.email.equals : where.email;
+              const target =
+                typeof where.email === "object"
+                  ? where.email.equals
+                  : where.email;
               return Promise.resolve(
-                db.users.find((u) => u.email.toLowerCase() === target.toLowerCase()) || null
+                db.users.find(
+                  (u) => u.email.toLowerCase() === target.toLowerCase(),
+                ) || null,
               );
             }
             return Promise.resolve(null);
           }),
           findUnique: jest.fn().mockImplementation(({ where }) => {
-            return Promise.resolve(db.users.find((u) => u.id === where.id) || null);
+            return Promise.resolve(
+              db.users.find((u) => u.id === where.id) || null,
+            );
           }),
           create: jest.fn().mockImplementation(({ data }) => {
             const newUser = { id: `user-${db.users.length + 1}`, ...data };
@@ -96,13 +130,21 @@ jest.mock("@prisma/client", () => {
         },
         queue: {
           findMany: jest.fn().mockImplementation(({ where }) => {
-            return Promise.resolve(db.queues.filter((q) => q.tenantId === where?.tenantId));
+            return Promise.resolve(
+              db.queues.filter((q) => q.tenantId === where?.tenantId),
+            );
           }),
           findUnique: jest.fn().mockImplementation(({ where }) => {
-            return Promise.resolve(db.queues.find((q) => q.id === where?.id) || null);
+            return Promise.resolve(
+              db.queues.find((q) => q.id === where?.id) || null,
+            );
           }),
           create: jest.fn().mockImplementation(({ data }) => {
-            const newQ = { id: `queue-${db.queues.length + 1}`, status: "ACTIVE", ...data };
+            const newQ = {
+              id: `queue-${db.queues.length + 1}`,
+              status: "ACTIVE",
+              ...data,
+            };
             db.queues.push(newQ);
             return Promise.resolve(newQ);
           }),
@@ -128,7 +170,10 @@ describe("Auth, RBAC, & Validation Matrix API Tests", () => {
     // Unknown email
     const unknownRes = await request(app)
       .post("/api/auth/login")
-      .send({ email: "unknown-nonexistent-user@example.com", password: "password123" });
+      .send({
+        email: "unknown-nonexistent-user@example.com",
+        password: "password123",
+      });
     expect(unknownRes.statusCode).toBe(401);
     expect(unknownRes.body.error).toBe("Invalid credentials");
 
@@ -148,7 +193,7 @@ describe("Auth, RBAC, & Validation Matrix API Tests", () => {
         password: "password123",
         role: "SUPER_ADMIN", // Client attempt to escalate role
       });
-    
+
     // In database or response, role must be USER
     if (res.statusCode === 201) {
       expect(res.body.role).toBe("USER");
