@@ -8,6 +8,8 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "test": "turbo run test",
+    "test:e2e": "playwright test --config=tests/playwright.config.ts",
+    "test:e2e:screenshots": "playwright test --config=tests/playwright.config.ts --project=screenshots",
     "prepare": "husky install"
   },
   "devDependencies": {

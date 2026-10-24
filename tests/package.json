@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:screenshots": "playwright test --project=screenshots"
   },
   "devDependencies": {
     "@playwright/test": "^1.44.0",

@@ -1,74 +1,149 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
-  test("User joins queue, receives FCFS position, and manages status", async ({
-    page,
+  test("User joins queue, receives FCFS position, and marks service completed", async ({
+    browser,
   }) => {
-    // Navigate to admin login & login
-    await page.goto("/admin");
-    await expect(page.locator("h1")).toContainText("Admin Login");
+    // 1. Admin Context: Login and Create Dedicated Queue
+    const adminContext = await browser.newContext();
+    const adminPage = await adminContext.newPage();
 
-    await page.fill('input[type="email"]', "admin@example.com");
-    await page.fill('input[type="password"]', "password123");
-    await page.click('button[type="submit"]');
+    let userContext;
+    try {
+      await adminPage.goto("/admin");
+      await expect(adminPage.locator("h1")).toContainText("NexTurn");
 
-    // Verify dashboard
-    await expect(page.locator("h1")).toContainText("Organization Dashboard");
+      await adminPage.fill('input[type="email"]', "admin@example.com");
+      await adminPage.fill('input[type="password"]', "password123");
+      await adminPage.click('button[type="submit"]');
 
-    // Create a new queue
-    const queueName = `E2E Queue ${Date.now()}`;
-    await page.fill('input[name="queueName"]', queueName);
-    await page.click('button:has-text("Create Queue")');
+      await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
+      await expect(adminPage.locator("h1")).toContainText(
+        "Organization Dashboard",
+      );
 
-    // Get public queue link
-    await expect(page.locator("a.qr-link")).toBeVisible();
-    const qrLink = await page.getAttribute("a.qr-link", "href");
-    expect(qrLink).toBeTruthy();
+      const queueName = `FCFS Queue ${Date.now()}`;
+      await adminPage.fill('input[name="queueName"]', queueName);
+      await adminPage.click('button:has-text("Create Queue")');
 
-    // User A joins
-    await page.goto(qrLink!);
-    await expect(page.locator("h1")).toContainText(queueName);
-    await page.fill('input[name="name"]', "User A");
-    await page.fill('input[name="phone"]', "9876543210");
-    await page.click('button:has-text("Join Queue")');
+      const qrLinkLocator = adminPage.locator("a.qr-link");
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = await qrLinkLocator.getAttribute("href");
+      expect(qrLink).toBeTruthy();
 
-    // User A receives position #1
-    await expect(page.locator("text=#1")).toBeVisible();
-    await expect(page.locator("text=0 people ahead")).toBeVisible();
+      // 2. User Context: Register as USER and Join Queue
+      userContext = await browser.newContext();
+      const userPage = await userContext.newPage();
 
-    // User A clicks Mark Completed
-    await page.click('button:has-text("Mark Completed")');
-    await expect(page.locator("text=Service Completed")).toBeVisible();
+      const userEmail = `fcfs-user-${Date.now()}@example.com`;
+      await userPage.goto("/signup");
+      await userPage.fill('input[placeholder="Jane Doe"]', "FCFS User");
+      await userPage.fill('input[placeholder="jane@example.com"]', userEmail);
+      await userPage.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
+      await userPage.click('button[type="submit"]');
+      await expect(userPage).toHaveURL(/\/dashboard/);
+
+      // 3. User navigates to public queue page and joins
+      await userPage.goto(qrLink!);
+      await expect(userPage.locator("h1")).toContainText(queueName);
+      await userPage.click('button:has-text("Join Queue")');
+
+      // 4. Assert Position #1 state
+      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(userPage.locator("h1")).toContainText("Hello, FCFS User!");
+      await expect(
+        userPage.locator("text=Please proceed now to the counter."),
+      ).toBeVisible();
+
+      // 5. User marks service completed
+      await userPage.click('button:has-text("Mark Completed")');
+      await expect(userPage.locator("text=Service Completed")).toBeVisible();
+      await expect(
+        userPage.locator("text=Thank you for waiting!"),
+      ).toBeVisible();
+    } finally {
+      if (userContext) await userContext.close();
+      await adminContext.close();
+    }
   });
 
-  test("User leave queue with confirmation dialog", async ({ page }) => {
-    // Join queue
-    await page.goto("/queue/queue-1");
-    if (await page.locator('button:has-text("Leave Queue")').isVisible()) {
-      // Leave existing session if any
-      await page.click('button:has-text("Leave Queue")');
-      await page.click('button:has-text("Leave Queue")'); // confirm modal
+  test("User joins queue, verifies leave confirmation dialog, and leaves queue", async ({
+    browser,
+  }) => {
+    // 1. Admin Context: Create Dedicated Queue
+    const adminContext = await browser.newContext();
+    const adminPage = await adminContext.newPage();
+
+    let userContext;
+    try {
+      await adminPage.goto("/admin");
+      await adminPage.fill('input[type="email"]', "admin@example.com");
+      await adminPage.fill('input[type="password"]', "password123");
+      await adminPage.click('button[type="submit"]');
+      await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
+
+      const queueName = `Leave Queue ${Date.now()}`;
+      await adminPage.fill('input[name="queueName"]', queueName);
+      await adminPage.click('button:has-text("Create Queue")');
+
+      const qrLinkLocator = adminPage.locator("a.qr-link");
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = await qrLinkLocator.getAttribute("href");
+      expect(qrLink).toBeTruthy();
+
+      // 2. User Context: Register as USER and Join Queue
+      userContext = await browser.newContext();
+      const userPage = await userContext.newPage();
+
+      const userEmail = `leave-user-${Date.now()}@example.com`;
+      await userPage.goto("/signup");
+      await userPage.fill('input[placeholder="Jane Doe"]', "Leave User");
+      await userPage.fill('input[placeholder="jane@example.com"]', userEmail);
+      await userPage.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
+      await userPage.click('button[type="submit"]');
+      await expect(userPage).toHaveURL(/\/dashboard/);
+
+      // 3. User navigates to public queue page and joins
+      await userPage.goto(qrLink!);
+      await expect(userPage.locator("h1")).toContainText(queueName);
+      await userPage.click('button:has-text("Join Queue")');
+
+      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+
+      // 4. Trigger Leave Confirmation Modal
+      await userPage.click('button:has-text("Leave Queue")');
+      await expect(
+        userPage.locator("text=Leave Queue Confirmation"),
+      ).toBeVisible();
+      await expect(
+        userPage.locator("text=Are you sure you want to leave the queue?"),
+      ).toBeVisible();
+
+      // 5. Test Cancel button inside modal
+      await userPage.click('button:has-text("Cancel")');
+      await expect(
+        userPage.locator("text=Leave Queue Confirmation"),
+      ).not.toBeVisible();
+      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+
+      // 6. Trigger Modal again and Confirm Leave
+      await userPage.click('button:has-text("Leave Queue")');
+      await userPage.click('div.fixed button:has-text("Leave Queue")');
+
+      // 7. Verify Ticket state updates to Cancelled
+      await expect(userPage.locator("text=Queue Left")).toBeVisible();
+      await expect(
+        userPage.locator("text=You have left this queue"),
+      ).toBeVisible();
+    } finally {
+      if (userContext) await userContext.close();
+      await adminContext.close();
     }
-
-    await page.goto("/queue/queue-1");
-    await page.fill('input[name="name"]', "User Leave Test");
-    await page.click('button:has-text("Join Queue")');
-
-    await expect(page.locator("text=You're in the queue")).toBeVisible();
-
-    // Click Leave Queue button to show confirmation modal
-    await page.click('button:has-text("Leave Queue")');
-
-    // Confirm modal should appear with prompt warning
-    await expect(page.locator("text=Leave Queue Confirmation")).toBeVisible();
-    await expect(
-      page.locator("text=Are you sure you want to leave the queue?"),
-    ).toBeVisible();
-
-    // Click confirm leave inside modal
-    await page.locator('div.fixed button:has-text("Leave Queue")').click();
-
-    // Verify left status
-    await expect(page.locator("text=You have left this queue")).toBeVisible();
   });
 });

@@ -4,49 +4,108 @@ const BASE_URL = "http://localhost:3000";
 
 test.describe("Phase 6 — Camera QR Scanner E2E Verification", () => {
   test("User can open QR Scanner modal from dashboard and navigate via fallback/scanner input", async ({
-    page,
+    browser,
   }) => {
-    // 1. Log in as normal USER
-    await page.goto(`${BASE_URL}/login`);
-    await page.fill('input[type="email"]', "user1@example.com");
-    await page.fill('input[type="password"]', "password123");
-    await page.click('button[type="submit"]');
+    const adminContext = await browser.newContext();
+    const userContext = await browser.newContext();
 
-    // Should land on user dashboard
-    await page.waitForURL("**/dashboard");
-    await expect(page.locator("h1")).toContainText("Welcome");
+    try {
+      const adminPage = await adminContext.newPage();
+      const userPage = await userContext.newPage();
 
-    // 2. Click "Scan QR Code" button
-    await page.click('button:has-text("Scan QR Code")');
+      // 1. Create dedicated queue as admin
+      await adminPage.goto(`${BASE_URL}/admin`);
+      await adminPage.fill('input[type="email"]', "admin@example.com");
+      await adminPage.fill('input[type="password"]', "password123");
+      await adminPage.click('button[type="submit"]');
+      await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
-    // 3. Verify QR Scanner modal opens with title and fallback input
-    await expect(page.locator("text=Scan Queue QR")).toBeVisible();
-    await expect(
-      page.locator('input[placeholder*="Paste URL or Queue ID"]'),
-    ).toBeVisible();
+      const queueName = `Scanner Queue ${Date.now()}`;
+      await adminPage.fill('input[name="queueName"]', queueName);
+      await adminPage.click('button:has-text("Create Queue")');
+      await expect(adminPage.locator("a.qr-link")).toBeVisible();
+      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
+      expect(qrLink).toBeTruthy();
 
-    // 4. Test manual entry fallback (e.g. pasting queue URL)
-    await page.fill(
-      'input[placeholder*="Paste URL or Queue ID"]',
-      `${BASE_URL}/queue/queue-1`,
-    );
-    await page.click('button:has-text("Open Queue")');
+      // 2. User registers and lands on dashboard
+      const userEmail = `scanner-user-${Date.now()}@example.com`;
+      await userPage.goto(`${BASE_URL}/signup`);
+      await userPage.fill('input[name="name"]', "Scanner User");
+      await userPage.fill('input[name="email"]', userEmail);
+      await userPage.fill('input[name="password"]', "password123");
+      await userPage.click('button[type="submit"]');
+      await expect(userPage).toHaveURL(/\/dashboard/);
+      await expect(userPage.locator("h1")).toContainText("Welcome");
 
-    // 5. Automatically navigates to /queue/queue-1
-    await page.waitForURL("**/queue/queue-1");
-    await expect(page.locator("h1")).toContainText("Main Queue");
+      // 3. Open QR scanner modal
+      await userPage.click('button:has-text("Scan QR Code")');
+      await expect(userPage.locator("text=Scan Queue QR")).toBeVisible();
+      await expect(
+        userPage.locator('input[placeholder*="Paste URL or Queue ID"]'),
+      ).toBeVisible();
+
+      // 4. Test manual entry fallback with real queue URL
+      await userPage.fill(
+        'input[placeholder*="Paste URL or Queue ID"]',
+        `${BASE_URL}${qrLink}`,
+      );
+      await userPage.click('button:has-text("Open Queue")');
+
+      // 5. Automatically navigates to the queue page
+      await expect(userPage).toHaveURL(
+        new RegExp(qrLink!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      );
+      await expect(userPage.locator("h1")).toContainText(queueName);
+    } finally {
+      await adminContext.close().catch(() => {});
+      await userContext.close().catch(() => {});
+    }
   });
 
   test("Unauthenticated user entering scanner URL is required to log in before joining", async ({
-    page,
+    browser,
   }) => {
-    // Navigate directly to public queue URL (as detected by QR scanner)
-    await page.goto(`${BASE_URL}/queue/queue-1`);
-    await expect(page.locator("h1")).toContainText("Main Queue");
+    const adminContext = await browser.newContext();
+    const guestContext = await browser.newContext();
 
-    // Attempting to join without logging in redirects to /login?redirect=/queue/queue-1
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/login?redirect=/queue/queue-1");
-    await expect(page.locator("text=Sign in to your account")).toBeVisible();
+    try {
+      const adminPage = await adminContext.newPage();
+      const guestPage = await guestContext.newPage();
+
+      // Create dedicated queue as admin
+      await adminPage.goto(`${BASE_URL}/admin`);
+      await adminPage.fill('input[type="email"]', "admin@example.com");
+      await adminPage.fill('input[type="password"]', "password123");
+      await adminPage.click('button[type="submit"]');
+      await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
+
+      const queueName = `Auth Gate Queue ${Date.now()}`;
+      await adminPage.fill('input[name="queueName"]', queueName);
+      await adminPage.click('button:has-text("Create Queue")');
+      await expect(adminPage.locator("a.qr-link")).toBeVisible();
+      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
+      expect(qrLink).toBeTruthy();
+
+      // Guest visits queue directly
+      await guestPage.goto(`${BASE_URL}${qrLink}`);
+      await expect(guestPage.locator("h1")).toContainText(queueName);
+
+      // Fill required name input with harmless test value before submit
+      await guestPage.fill('input[name="name"]', "Guest User");
+
+      // Attempting to join without logging in redirects to /login?redirect=<qrLink>
+      await guestPage.click('button[type="submit"]');
+      await expect(guestPage).toHaveURL(
+        new RegExp(
+          `/login\\?redirect=${qrLink!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+        ),
+      );
+      await expect(
+        guestPage.locator("text=Sign in to your account"),
+      ).toBeVisible();
+    } finally {
+      await adminContext.close().catch(() => {});
+      await guestContext.close().catch(() => {});
+    }
   });
 });
