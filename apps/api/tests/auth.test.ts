@@ -168,12 +168,10 @@ const JWT_SECRET =
 describe("Auth, RBAC, & Validation Matrix API Tests", () => {
   it("AUTH-01 / AUTH-02 / AUTH-03: Login validation and unknown email failure", async () => {
     // Unknown email
-    const unknownRes = await request(app)
-      .post("/api/auth/login")
-      .send({
-        email: "unknown-nonexistent-user@example.com",
-        password: "password123",
-      });
+    const unknownRes = await request(app).post("/api/auth/login").send({
+      email: "unknown-nonexistent-user@example.com",
+      password: "password123",
+    });
     expect(unknownRes.statusCode).toBe(401);
     expect(unknownRes.body.error).toBe("Invalid credentials");
 

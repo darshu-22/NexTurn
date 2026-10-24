@@ -7,20 +7,16 @@ jest.mock("@prisma/client", () => {
     PrismaClient: jest.fn().mockImplementation(() => {
       return {
         tenant: {
-          findFirst: jest
-            .fn()
-            .mockResolvedValue({
-              id: "tenant-1",
-              slug: "demo",
-              status: "ACTIVE",
-            }),
-          findUnique: jest
-            .fn()
-            .mockResolvedValue({
-              id: "tenant-1",
-              slug: "demo",
-              status: "ACTIVE",
-            }),
+          findFirst: jest.fn().mockResolvedValue({
+            id: "tenant-1",
+            slug: "demo",
+            status: "ACTIVE",
+          }),
+          findUnique: jest.fn().mockResolvedValue({
+            id: "tenant-1",
+            slug: "demo",
+            status: "ACTIVE",
+          }),
         },
         user: {
           findFirst: jest.fn().mockResolvedValue(null),
