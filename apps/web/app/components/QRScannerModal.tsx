@@ -14,23 +14,40 @@ export default function QRScannerModal({
   onClose,
   onScanSuccess,
 }: QRScannerModalProps) {
+  const [statusText, setStatusText] = useState("Starting camera…");
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [manualError, setManualError] = useState("");
   const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
   const isScanningRef = useRef<boolean>(false);
 
+  const stopCamera = async () => {
+    if (html5QrcodeRef.current && isScanningRef.current) {
+      isScanningRef.current = false;
+      try {
+        await html5QrcodeRef.current.stop();
+      } catch (err) {
+        // Ignore camera stop error if already stopped
+      }
+    }
+  };
+
+  const handleClose = async () => {
+    await stopCamera();
+    onClose();
+  };
+
   useEffect(() => {
     if (!isOpen) return;
 
     setScannerError(null);
     setManualError("");
+    setStatusText("Starting camera…");
 
     const elementId = "nexturn-qr-reader";
 
     const startScanner = async () => {
       try {
-        // Initialize Html5Qrcode
         const html5Qrcode = new Html5Qrcode(elementId);
         html5QrcodeRef.current = html5Qrcode;
 
@@ -41,9 +58,9 @@ export default function QRScannerModal({
             qrbox: { width: 250, height: 250 },
           },
           (decodedText: string) => {
-            // Stop scanning once code is detected
             if (isScanningRef.current) {
               isScanningRef.current = false;
+              setStatusText("QR code detected");
               html5Qrcode
                 .stop()
                 .then(() => {
@@ -55,30 +72,28 @@ export default function QRScannerModal({
             }
           },
           () => {
-            // Ignore frame scan errors
-          },
+            // Keep scanning state while active
+            if (isScanningRef.current) {
+              setStatusText("Scanning…");
+            }
+          }
         );
 
         isScanningRef.current = true;
+        setStatusText("Point your camera at the NexTurn QR code");
       } catch (err: any) {
         console.error("Camera access error:", err);
-        setScannerError(
-          "Camera access denied or unavailable. Please grant camera permission or use manual entry below.",
-        );
+        setScannerError("Camera access was denied.");
       }
     };
 
-    // Small delay to ensure DOM element rendered
     const timer = setTimeout(() => {
       startScanner();
     }, 200);
 
     return () => {
       clearTimeout(timer);
-      if (html5QrcodeRef.current && isScanningRef.current) {
-        isScanningRef.current = false;
-        html5QrcodeRef.current.stop().catch(() => {});
-      }
+      stopCamera();
     };
   }, [isOpen]);
 
@@ -91,13 +106,11 @@ export default function QRScannerModal({
     if (queueId) {
       onScanSuccess(queueId);
     } else {
-      setScannerError(
-        "Invalid QR code format. Could not detect a valid Queue ID.",
-      );
+      setScannerError("Invalid QR code format. Could not detect a valid Queue ID.");
     }
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setManualError("");
 
@@ -113,10 +126,7 @@ export default function QRScannerModal({
     }
 
     if (val) {
-      if (html5QrcodeRef.current && isScanningRef.current) {
-        isScanningRef.current = false;
-        html5QrcodeRef.current.stop().catch(() => {});
-      }
+      await stopCamera();
       onScanSuccess(val);
     } else {
       setManualError("Could not extract a valid Queue ID from the input.");
@@ -149,13 +159,13 @@ export default function QRScannerModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Scan Queue QR</h2>
-              <p className="text-xs text-slate-400">
-                Point device camera at NexTurn QR code
+              <p className="text-xs text-blue-400 font-medium">
+                {scannerError ? "Camera Unavailable" : statusText}
               </p>
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-full transition"
             aria-label="Close modal"
           >
@@ -201,12 +211,11 @@ export default function QRScannerModal({
                     />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-rose-300">
+                <p className="text-sm font-semibold text-rose-300">
                   {scannerError}
                 </p>
                 <p className="text-xs text-slate-400 max-w-xs">
-                  Please enable camera permission in your browser settings or
-                  use manual link entry below.
+                  Please grant camera permission in your browser settings or use manual link entry below.
                 </p>
               </div>
             )}

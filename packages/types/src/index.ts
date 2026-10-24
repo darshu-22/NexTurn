@@ -3,7 +3,7 @@ export interface User {
   tenantId: string;
   name: string;
   email: string | null;
-  role: "PLATFORM_ADMIN" | "ORGANIZATION_ADMIN" | "QUEUE_OPERATOR" | "USER";
+  role: "SUPER_ADMIN" | "ADMIN" | "USER";
 }
 
 export interface Tenant {

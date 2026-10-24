@@ -39,7 +39,82 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
+/**
+ * PROXY TRUST POLICY & SECURITY SPECIFICATION:
+ *
+ * 1. Architecture Topology:
+ *    - NexTurn API is hosted on Render (e.g., nexturn-api.onrender.com).
+ *    - Inbound requests traverse Render's ingress reverse proxy/load balancer before reaching
+ *      this Node.js container process.
+ *    - Render's load balancer terminates TLS and forwards requests, setting or appending standard
+ *      forwarding headers: `X-Forwarded-For` and `X-Forwarded-Proto`.
+ *
+ * 2. Hop Evaluation Mechanics (proxy-addr):
+ *    - Express evaluates `X-Forwarded-For` from right to left using the `proxy-addr` library.
+ *    - When `trust proxy` is set to an integer `N`, Express trusts exactly `N` proxy hops from the right.
+ *    - With `trust proxy = 1`, Express considers the rightmost IP in `X-Forwarded-For` as the trusted
+ *      client IP (`req.ip`), which corresponds to the address appended by Render's immediate reverse proxy.
+ *
+ * 3. Spoofing Resistance vs. Over-Trusting:
+ *    - If an attacker sends: `X-Forwarded-For: <spoofed-ip>`, Render's proxy appends the real client IP:
+ *      `X-Forwarded-For: <spoofed-ip>, <real-client-ip>`.
+ *    - With `trust proxy = 1`, Express correctly selects `<real-client-ip>` and ignores `<spoofed-ip>`.
+ *    - Setting `trust proxy = true` is STRICTLY PROHIBITED: it trusts the leftmost IP, allowing any client
+ *      to trivially forge their IP address.
+ *    - Permitting 1-3 hops does NOT make the setup inherently secure: if the actual proxy chain has only
+ *      1 hop but `trust proxy` is set to 2 or 3, Express will trust client-supplied prefixes as genuine hops,
+ *      re-introducing client IP spoofing vulnerabilities.
+ *
+ * 4. Production Uncertainty & Unresolved Boundary:
+ *    - If Render's edge architecture routes traffic through Cloudflare and Render appends Cloudflare's
+ *      egress IP, `trust proxy = 1` will extract Cloudflare's IP instead of the visitor's IP, collapsing
+ *      all users on that egress into a single rate-limit bucket.
+ *    - However, blindly increasing the hop count to 2 without an authenticated edge boundary (e.g.,
+ *      verifying that requests arrive exclusively via Cloudflare rather than directly to onrender.com)
+ *      would allow attackers sending direct requests to spoof their IP.
+ *    - Therefore, the live production topology remains documented as UNRESOLVED until empirically verified
+ *      in a staging environment. The default of 1 hop is maintained as the safest standard baseline.
+ */
+export function validateTrustProxyHops(rawVal: string | undefined): number {
+  // If not explicitly provided, default to 1 (standard single reverse proxy hop on Render)
+  if (rawVal === undefined || rawVal === null || rawVal.trim() === "") {
+    return 1;
+  }
+
+  const trimmed = rawVal.trim();
+
+  // Reject malformed, non-integer, negative, or decimal strings
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be a positive integer. Received: "${rawVal}"`
+    );
+  }
+
+  const hops = Number(trimmed);
+
+  // Reject zero and negative numbers
+  if (!Number.isInteger(hops) || hops <= 0) {
+    throw new Error(
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS must be greater than 0. Received: "${rawVal}"`
+    );
+  }
+
+  // Maximum permitted hops for NexTurn architecture (Render ingress + optional Cloudflare edge).
+  // Any hop count > 2 is unreasonable for this architecture and introduces client IP spoofing risks.
+  const MAX_PERMITTED_HOPS = 2;
+  if (hops > MAX_PERMITTED_HOPS) {
+    throw new Error(
+      `FATAL CONFIGURATION ERROR: TRUST_PROXY_HOPS value ${hops} exceeds maximum safe limit (${MAX_PERMITTED_HOPS}). Excessive hop trust permits client IP spoofing.`
+    );
+  }
+
+  return hops;
+}
+
 const app = express();
+
+export const TRUST_PROXY_HOPS = validateTrustProxyHops(process.env.TRUST_PROXY_HOPS);
+app.set("trust proxy", TRUST_PROXY_HOPS);
 const httpServer = http.createServer(app);
 export const io = new SocketIOServer(httpServer, {
   cors: {
@@ -98,14 +173,33 @@ export async function bootstrapSuperAdmin() {
   }
 }
 
+// Body parsing with safe malformed JSON error handling
 app.use(express.json());
+
+// Catch and sanitize JSON syntax errors from body-parser
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (
+    err instanceof SyntaxError &&
+    "body" in err &&
+    ((err as any).status === 400 || (err as any).statusCode === 400)
+  ) {
+    return res.status(400).json({
+      error: "Bad Request: Malformed JSON payload",
+    });
+  }
+  next(err);
+});
+
 app.use(cors());
 app.use(helmet());
 
-// Rate Limiting
+// Rate Limiting: Keyed by validated client IP via single-hop trusted proxy
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
+  standardHeaders: true, // Return draft-6 `RateLimit-*` headers
+  legacyHeaders: false, // Disable legacy `X-RateLimit-*` headers
+  message: { error: "Too many requests, please try again later." },
 });
 app.use("/api", limiter);
 
@@ -425,9 +519,12 @@ app.get("/api/health", (req, res) => {
 app.post("/api/auth/signup", async (req, res) => {
   try {
     const validatedData = SignupSchema.parse(req.body);
-    const { name, email, phone, password, tenantSlug } = validatedData;
+    const { name, phone, password, tenantSlug } = validatedData;
+    const email = validatedData.email.trim().toLowerCase();
 
-    const existingUser = await prisma.user.findFirst({ where: { email } });
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
     if (existingUser) {
       return res
         .status(400)
@@ -495,9 +592,12 @@ app.post("/api/auth/signup", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const validatedData = LoginSchema.parse(req.body);
-    const { email, password } = validatedData;
+    const { password } = validatedData;
+    const email = validatedData.email.trim().toLowerCase();
 
-    const user = await prisma.user.findFirst({ where: { email } });
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+    });
 
     if (!user || !user.passwordHash) {
       return res.status(401).json({ error: "Invalid credentials" });
@@ -585,9 +685,12 @@ app.post(
   async (req: AuthRequest, res) => {
     try {
       const validatedData = CreateAdminSchema.parse(req.body);
-      const { name, email, phone, password } = validatedData;
+      const { name, phone, password } = validatedData;
+      const email = validatedData.email.trim().toLowerCase();
 
-      const existingUser = await prisma.user.findFirst({ where: { email } });
+      const existingUser = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+      });
       if (existingUser) {
         return res
           .status(400)
@@ -738,7 +841,7 @@ app.get(
   "/api/queues",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN", "QUEUE_OPERATOR"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const queues = await prisma.queue.findMany({
@@ -757,7 +860,7 @@ app.post(
   "/api/queues",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const validatedData = QueueCreateSchema.parse(req.body);
@@ -972,7 +1075,7 @@ app.get("/api/queue-entries/:id", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN", "ORGANIZATION_ADMIN", "QUEUE_OPERATOR"].includes(
+      ["SUPER_ADMIN", "ADMIN"].includes(
         authUser.role,
       );
 
@@ -1036,7 +1139,7 @@ app.post("/api/queue-entries/:id/done", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN", "ORGANIZATION_ADMIN", "QUEUE_OPERATOR"].includes(
+      ["SUPER_ADMIN", "ADMIN"].includes(
         authUser.role,
       );
 
@@ -1137,7 +1240,7 @@ app.post("/api/queue-entries/:id/cancel", async (req, res) => {
     const isAdmin =
       authUser &&
       authUser.tenantId === entry.tenantId &&
-      ["SUPER_ADMIN", "ADMIN", "ORGANIZATION_ADMIN", "QUEUE_OPERATOR"].includes(
+      ["SUPER_ADMIN", "ADMIN"].includes(
         authUser.role,
       );
 
@@ -1215,7 +1318,7 @@ app.get(
   "/api/queues/:id/entries",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN", "QUEUE_OPERATOR"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const { id: queueId } = req.params;
@@ -1266,7 +1369,7 @@ app.post(
   "/api/admin/queue-entries/:id/done",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN", "QUEUE_OPERATOR"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -1345,7 +1448,7 @@ app.post(
   "/api/admin/queue-entries/:id/remove",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN", "QUEUE_OPERATOR"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -1424,7 +1527,7 @@ app.post(
   "/api/admin/queue-entries/:id/reorder",
   authenticateToken,
   requireTenantAccess,
-  requireRole(["ORGANIZATION_ADMIN", "QUEUE_OPERATOR"]),
+  requireRole(["SUPER_ADMIN", "ADMIN"]),
   async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
@@ -1519,6 +1622,18 @@ app.post(
     }
   },
 );
+
+// Global Fallback Error Handler (prevents unhandled crashes and stack trace leakage)
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  console.error("Unhandled API error:", err?.message || err);
+  const statusCode = err.status || err.statusCode || 500;
+  res.status(statusCode).json({
+    error: statusCode === 400 ? err.message : "Internal server error",
+  });
+});
 
 if (process.env.NODE_ENV !== "test") {
   httpServer.listen(PORT, () => {

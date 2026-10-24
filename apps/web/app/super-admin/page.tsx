@@ -66,6 +66,11 @@ export default function SuperAdminDashboard() {
     const token = localStorage.getItem("token");
     if (!token) return;
 
+    if (phone.trim() && !/^(\+?[0-9\s\-()]{7,20})$/.test(phone.trim())) {
+      setError("Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).");
+      return;
+    }
+
     try {
       setModalLoading(true);
       const res = await fetch(`${API_BASE}/super-admin/admins`, {
@@ -77,7 +82,7 @@ export default function SuperAdminDashboard() {
         body: JSON.stringify({
           name,
           email,
-          phone: phone || undefined,
+          phone: phone.trim() || undefined,
           password,
         }),
       });
@@ -335,6 +340,7 @@ export default function SuperAdminDashboard() {
                     type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
+                    maxLength={20}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     placeholder="+15559998888"
                   />

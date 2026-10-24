@@ -14,7 +14,7 @@ export default function Home() {
       router.push("/login");
     } else if (role === "SUPER_ADMIN") {
       router.push("/super-admin");
-    } else if (role === "ADMIN" || role === "ORGANIZATION_ADMIN") {
+    } else if (role === "ADMIN") {
       router.push("/admin/dashboard");
     } else {
       router.push("/dashboard");

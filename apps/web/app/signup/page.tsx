@@ -13,21 +13,36 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("Creating your account…");
   const router = useRouter();
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // Prevent double submission
+
     setError("");
 
+    if (phone.trim() && !/^(\+?[0-9\s\-()]{7,20})$/.test(phone.trim())) {
+      setError("Invalid phone number format. Max 20 characters (digits, spaces, hyphens, plus).");
+      return;
+    }
+
+    setLoading(true);
+    setLoadingMsg("Creating your account…");
+
+    // Progressive loading messages for backend cold start responsiveness
+    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
+    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+    const timer3 = setTimeout(() => setLoadingMsg("Still connecting to NexTurn…"), 12000);
+
     try {
-      setLoading(true);
       const res = await fetch(`${API_BASE}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
           email,
-          phone: phone || undefined,
+          phone: phone.trim() || undefined,
           password,
         }),
       });
@@ -44,8 +59,15 @@ export default function SignupPage() {
 
       router.push("/dashboard");
     } catch (err: any) {
-      setError(err.message || "Registration failed");
+      if (err.name === "TypeError" || err.message?.includes("fetch")) {
+        setError("Unable to connect to NexTurn. Please check your network connection and try again.");
+      } else {
+        setError(err.message || "Registration failed");
+      }
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
       setLoading(false);
     }
   };
@@ -75,7 +97,8 @@ export default function SignupPage() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="Jane Doe"
               required
             />
@@ -89,7 +112,8 @@ export default function SignupPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="jane@example.com"
               required
             />
@@ -103,7 +127,9 @@ export default function SignupPage() {
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              maxLength={20}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="+15551234567"
             />
           </div>
@@ -116,7 +142,8 @@ export default function SignupPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="At least 6 characters"
               required
               minLength={6}
@@ -126,9 +153,16 @@ export default function SignupPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-3.5 rounded-xl transition duration-200 disabled:opacity-50 shadow-lg shadow-blue-600/20 mt-2"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-3.5 rounded-xl transition duration-200 disabled:opacity-60 shadow-lg shadow-blue-600/20 mt-2 flex items-center justify-center gap-2"
           >
-            {loading ? "Creating Account..." : "Create Account"}
+            {loading ? (
+              <>
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <span>{loadingMsg}</span>
+              </>
+            ) : (
+              "Create Account"
+            )}
           </button>
         </form>
 

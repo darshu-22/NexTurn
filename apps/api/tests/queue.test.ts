@@ -18,7 +18,7 @@ const db = {
       id: "admin-1",
       tenantId: "tenant-1",
       name: "Admin One",
-      role: "ORGANIZATION_ADMIN",
+      role: "ADMIN",
       passwordHash: "password123",
       email: "admin1@example.com",
     },
@@ -26,7 +26,7 @@ const db = {
       id: "admin-2",
       tenantId: "tenant-2",
       name: "Admin Two",
-      role: "ORGANIZATION_ADMIN",
+      role: "ADMIN",
       passwordHash: "password123",
       email: "admin2@example.com",
     },
@@ -233,11 +233,11 @@ describe("Phase 2 — Queue Management API & Integration Tests", () => {
 
   beforeAll(() => {
     adminTokenTenant1 = jwt.sign(
-      { id: "admin-1", tenantId: "tenant-1", role: "ORGANIZATION_ADMIN" },
+      { id: "admin-1", tenantId: "tenant-1", role: "ADMIN" },
       JWT_SECRET,
     );
     adminTokenTenant2 = jwt.sign(
-      { id: "admin-2", tenantId: "tenant-2", role: "ORGANIZATION_ADMIN" },
+      { id: "admin-2", tenantId: "tenant-2", role: "ADMIN" },
       JWT_SECRET,
     );
     userTokenTenant1 = jwt.sign(

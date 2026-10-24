@@ -26,6 +26,9 @@ export default function PublicQueuePage() {
     status: string;
   } | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(true);
+  const [loadingQueueMsg, setLoadingQueueMsg] = useState("Loading queue…");
+  const [joiningMsg, setJoiningMsg] = useState("Joining queue…");
+  const [socketConnected, setSocketConnected] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [joining, setJoining] = useState(false);
@@ -82,12 +85,17 @@ export default function PublicQueuePage() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
+      setSocketConnected(true);
       if (entryData) {
         socket.emit("join_public_room", {
           entryId: entryData.id,
           sessionToken: entryData.sessionToken,
         });
       }
+    });
+
+    socket.on("disconnect", () => {
+      setSocketConnected(false);
     });
 
     socket.on("queue:status_updated", (data) => {
@@ -179,8 +187,14 @@ export default function PublicQueuePage() {
   };
 
   const fetchQueueInfo = async () => {
+    setError("");
+    setLoadingQueue(true);
+    setLoadingQueueMsg("Loading queue…");
+
+    const timer1 = setTimeout(() => setLoadingQueueMsg("Connecting to NexTurn…"), 3000);
+    const timer2 = setTimeout(() => setLoadingQueueMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+
     try {
-      setLoadingQueue(true);
       const res = await fetch(`${API_BASE}/queues/${queueId}/public`);
       if (res.ok) {
         const data = await res.json();
@@ -188,9 +202,15 @@ export default function PublicQueuePage() {
       } else {
         setError("Queue not found or closed");
       }
-    } catch (err) {
-      setError("Unable to connect to queue service");
+    } catch (err: any) {
+      if (err.name === "TypeError" || err.message?.includes("fetch")) {
+        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+      } else {
+        setError(err.message || "Unable to connect to queue service");
+      }
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
       setLoadingQueue(false);
     }
   };
@@ -239,6 +259,8 @@ export default function PublicQueuePage() {
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (joining) return; // Prevent double clicks
+
     setError("");
 
     const userToken = localStorage.getItem("token");
@@ -247,8 +269,13 @@ export default function PublicQueuePage() {
       return;
     }
 
+    setJoining(true);
+    setJoiningMsg("Joining queue…");
+
+    const timer1 = setTimeout(() => setJoiningMsg("Connecting to NexTurn…"), 3000);
+    const timer2 = setTimeout(() => setJoiningMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+
     try {
-      setJoining(true);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         Authorization: `Bearer ${userToken}`,
@@ -264,7 +291,7 @@ export default function PublicQueuePage() {
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || "Failed to join queue");
       }
 
@@ -317,8 +344,14 @@ export default function PublicQueuePage() {
         );
       }
     } catch (err: any) {
-      setError(err.message || "An error occurred while joining");
+      if (err.name === "TypeError" || err.message?.includes("fetch")) {
+        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+      } else {
+        setError(err.message || "An error occurred while joining");
+      }
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
       setJoining(false);
     }
   };
@@ -410,9 +443,10 @@ export default function PublicQueuePage() {
 
   if (loadingQueue) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4 bg-slate-50">
-        <div className="text-slate-600 font-medium">
-          Loading Queue Details...
+      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-slate-50 space-y-3">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="text-slate-600 font-medium text-sm">
+          {loadingQueueMsg}
         </div>
       </div>
     );
@@ -468,9 +502,27 @@ export default function PublicQueuePage() {
 
       {entryData ? (
         <div className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-md p-6 text-center">
-          <h2 className="text-lg font-semibold text-slate-500 mb-1">
-            {entryData.queueName || queueInfo?.name}
-          </h2>
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <h2 className="text-lg font-semibold text-slate-500">
+              {entryData.queueName || queueInfo?.name}
+            </h2>
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                socketConnected
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  socketConnected
+                    ? "bg-emerald-500 animate-pulse"
+                    : "bg-amber-500"
+                }`}
+              />
+              {socketConnected ? "Live" : "Reconnecting…"}
+            </span>
+          </div>
           <h1 className="text-2xl font-bold text-slate-800 mb-6">
             Hello, {entryData.name}!
           </h1>
@@ -571,9 +623,27 @@ export default function PublicQueuePage() {
           onSubmit={handleJoin}
           className="w-full max-w-sm p-6 bg-white border border-slate-200 rounded-xl shadow-md"
         >
-          <h1 className="text-2xl font-bold text-slate-800 mb-1">
-            {queueInfo?.name || "Join Queue"}
-          </h1>
+          <div className="flex items-center justify-between mb-1">
+            <h1 className="text-2xl font-bold text-slate-800">
+              {queueInfo?.name || "Join Queue"}
+            </h1>
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                socketConnected
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  socketConnected
+                    ? "bg-emerald-500 animate-pulse"
+                    : "bg-amber-500"
+                }`}
+              />
+              {socketConnected ? "Live" : "Reconnecting…"}
+            </span>
+          </div>
           <p className="text-slate-500 text-sm mb-6">
             Enter your details to receive your position number.
           </p>
@@ -593,7 +663,8 @@ export default function PublicQueuePage() {
               name="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              disabled={joining}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
               placeholder="Enter your name"
               required
               minLength={2}
@@ -609,7 +680,8 @@ export default function PublicQueuePage() {
               name="phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              disabled={joining}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:opacity-50"
               placeholder="Enter phone number"
             />
           </div>
@@ -617,9 +689,16 @@ export default function PublicQueuePage() {
           <button
             type="submit"
             disabled={joining}
-            className="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full bg-blue-600 text-white font-semibold p-3 rounded-lg hover:bg-blue-700 transition disabled:opacity-60 flex items-center justify-center gap-2"
           >
-            {joining ? "Joining Queue..." : "Join Queue"}
+            {joining ? (
+              <>
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <span>{joiningMsg}</span>
+              </>
+            ) : (
+              "Join Queue"
+            )}
           </button>
         </form>
       )}

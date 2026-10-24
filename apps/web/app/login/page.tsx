@@ -11,14 +11,23 @@ export default function UnifiedLogin() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("Signing in…");
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // Prevent double submission
+
     setError("");
+    setLoading(true);
+    setLoadingMsg("Signing in…");
+
+    // Progressive loading messages for backend cold start responsiveness
+    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
+    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+    const timer3 = setTimeout(() => setLoadingMsg("Still connecting to NexTurn…"), 12000);
 
     try {
-      setLoading(true);
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -37,7 +46,7 @@ export default function UnifiedLogin() {
 
       if (data.role === "SUPER_ADMIN") {
         router.push("/super-admin");
-      } else if (data.role === "ADMIN" || data.role === "ORGANIZATION_ADMIN") {
+      } else if (data.role === "ADMIN") {
         router.push("/admin/dashboard");
       } else {
         const searchParams = new URLSearchParams(
@@ -51,8 +60,15 @@ export default function UnifiedLogin() {
         }
       }
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      if (err.name === "TypeError" || err.message?.includes("fetch")) {
+        setError("Unable to connect to NexTurn. Please check your network connection and try again.");
+      } else {
+        setError(err.message || "Invalid credentials");
+      }
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
       setLoading(false);
     }
   };
@@ -84,7 +100,8 @@ export default function UnifiedLogin() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="you@example.com"
               required
             />
@@ -98,7 +115,8 @@ export default function UnifiedLogin() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              disabled={loading}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:outline-none transition disabled:opacity-50"
               placeholder="••••••••"
               required
             />
@@ -107,9 +125,16 @@ export default function UnifiedLogin() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-3.5 rounded-xl transition duration-200 disabled:opacity-50 shadow-lg shadow-blue-600/20"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold p-3.5 rounded-xl transition duration-200 disabled:opacity-60 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? (
+              <>
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <span>{loadingMsg}</span>
+              </>
+            ) : (
+              "Sign In"
+            )}
           </button>
         </form>
 

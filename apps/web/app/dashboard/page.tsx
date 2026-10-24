@@ -11,6 +11,8 @@ export default function UserDashboard() {
   const [user, setUser] = useState<any>(null);
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMsg, setLoadingMsg] = useState("Loading your queues…");
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const router = useRouter();
 
@@ -28,7 +30,7 @@ export default function UserDashboard() {
       return;
     }
 
-    if (role === "ADMIN" || role === "ORGANIZATION_ADMIN") {
+    if (role === "ADMIN") {
       router.push("/admin/dashboard");
       return;
     }
@@ -37,8 +39,14 @@ export default function UserDashboard() {
   }, []);
 
   const fetchUserData = async (token: string) => {
+    setError(null);
+    setLoading(true);
+    setLoadingMsg("Loading your queues…");
+
+    const timer1 = setTimeout(() => setLoadingMsg("Connecting to NexTurn…"), 3000);
+    const timer2 = setTimeout(() => setLoadingMsg("NexTurn is waking up. This may take a few seconds…"), 7000);
+
     try {
-      setLoading(true);
       const res = await fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -52,13 +60,24 @@ export default function UserDashboard() {
       const entriesRes = await fetch(`${API_BASE}/user/entries`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (entriesRes.ok) {
-        const entriesData = await entriesRes.json();
-        setActiveEntries(entriesData || []);
+
+      if (!entriesRes.ok) {
+        const errData = await entriesRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to load active queues");
       }
-    } catch (err) {
+
+      const entriesData = await entriesRes.json();
+      setActiveEntries(entriesData || []);
+    } catch (err: any) {
       console.error(err);
+      if (err.name === "TypeError" || err.message?.includes("fetch")) {
+        setError("Unable to connect to NexTurn. Please check your connection and try again.");
+      } else {
+        setError(err.message || "Failed to load dashboard data.");
+      }
     } finally {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
       setLoading(false);
     }
   };
@@ -75,14 +94,6 @@ export default function UserDashboard() {
     router.push(`/queue/${queueId}`);
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900 text-slate-100">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-6">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -95,6 +106,10 @@ export default function UserDashboard() {
               </h1>
               <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-900/60 text-blue-300 border border-blue-700/50 rounded-full">
                 USER
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 rounded-full">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Live
               </span>
             </div>
             <p className="text-slate-400 text-sm mt-1">
@@ -143,7 +158,25 @@ export default function UserDashboard() {
             </button>
           </div>
 
-          {activeEntries.length === 0 ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12 space-y-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+              <p className="text-slate-400 text-sm">{loadingMsg}</p>
+            </div>
+          ) : error ? (
+            <div className="p-4 border border-rose-800/60 bg-rose-950/40 rounded-xl space-y-3 text-center">
+              <p className="text-sm text-rose-300">{error}</p>
+              <button
+                onClick={() => {
+                  const token = localStorage.getItem("token");
+                  if (token) fetchUserData(token);
+                }}
+                className="px-4 py-1.5 text-xs bg-rose-900/60 hover:bg-rose-800/80 text-rose-100 font-medium rounded-lg transition"
+              >
+                Try Again
+              </button>
+            </div>
+          ) : activeEntries.length === 0 ? (
             <div className="text-center py-8 border border-dashed border-slate-700 rounded-xl space-y-4">
               <div>
                 <p className="text-slate-400 text-sm mb-1">
