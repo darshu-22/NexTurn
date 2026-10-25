@@ -26,14 +26,24 @@ test.describe("Phase 1 & 2 Happy Flow", () => {
 
       // 3. Create Queue
       const queueName = `Happy Flow Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
 
       // 4. Verify public queue link
-      const qrLinkLocator = adminPage.locator("a.qr-link");
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
       await expect(qrLinkLocator).toBeVisible();
-      const qrLink = await qrLinkLocator.getAttribute("href");
-      expect(qrLink).toBeTruthy();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 5. Isolated User Context (Clean cookies, localStorage, distinct role)
       userContext = await browser.newContext();
@@ -56,12 +66,14 @@ test.describe("Phase 1 & 2 Happy Flow", () => {
       await expect(userPage).toHaveURL(/\/dashboard/);
 
       // 7. User navigates to public queue page and joins
-      await userPage.goto(qrLink!);
+      await userPage.goto(qrLink);
       await expect(userPage.locator("h1")).toContainText(queueName);
       await userPage.click('button:has-text("Join Queue")');
 
       // 8. Verify ticket creation and Position #1 status
-      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "It's your turn!", exact: true }),
+      ).toBeVisible();
       await expect(userPage.locator("h1")).toContainText(
         "Hello, Happy Customer!",
       );

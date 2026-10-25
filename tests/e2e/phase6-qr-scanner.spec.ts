@@ -21,18 +21,33 @@ test.describe("Phase 6 — Camera QR Scanner E2E Verification", () => {
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
       const queueName = `Scanner Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
-      await expect(adminPage.locator("a.qr-link")).toBeVisible();
-      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
-      expect(qrLink).toBeTruthy();
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
+
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 2. User registers and lands on dashboard
       const userEmail = `scanner-user-${Date.now()}@example.com`;
       await userPage.goto(`${BASE_URL}/signup`);
-      await userPage.fill('input[name="name"]', "Scanner User");
-      await userPage.fill('input[name="email"]', userEmail);
-      await userPage.fill('input[name="password"]', "password123");
+      await userPage.fill('input[placeholder="Jane Doe"]', "Scanner User");
+      await userPage.fill('input[placeholder="jane@example.com"]', userEmail);
+      await userPage.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
       await userPage.click('button[type="submit"]');
       await expect(userPage).toHaveURL(/\/dashboard/);
       await expect(userPage.locator("h1")).toContainText("Welcome");
@@ -53,7 +68,7 @@ test.describe("Phase 6 — Camera QR Scanner E2E Verification", () => {
 
       // 5. Automatically navigates to the queue page
       await expect(userPage).toHaveURL(
-        new RegExp(qrLink!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        new RegExp(qrLink.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       );
       await expect(userPage.locator("h1")).toContainText(queueName);
     } finally {
@@ -80,11 +95,23 @@ test.describe("Phase 6 — Camera QR Scanner E2E Verification", () => {
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
       const queueName = `Auth Gate Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
-      await expect(adminPage.locator("a.qr-link")).toBeVisible();
-      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
-      expect(qrLink).toBeTruthy();
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
+
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // Guest visits queue directly
       await guestPage.goto(`${BASE_URL}${qrLink}`);
@@ -101,7 +128,7 @@ test.describe("Phase 6 — Camera QR Scanner E2E Verification", () => {
         ),
       );
       await expect(
-        guestPage.locator("text=Sign in to your account"),
+        guestPage.locator("text=Sign in to access your dashboard"),
       ).toBeVisible();
     } finally {
       await adminContext.close().catch(() => {});

@@ -23,26 +23,43 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
       const queueName = `RealTime ETA Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
 
       // 2. Select queue and retrieve public URL
       await adminPage.click(`text=${queueName}`);
-      await expect(adminPage.locator("a.qr-link")).toBeVisible();
-      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
-      expect(qrLink).toBeTruthy();
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 3. User 1 registration & join (Position #1)
       const u1Timestamp = Date.now();
       const u1Email = `rt-user1-${u1Timestamp}@example.com`;
       await user1Page.goto("/signup");
-      await user1Page.fill('input[name="name"]', "Realtime Customer 1");
-      await user1Page.fill('input[name="email"]', u1Email);
-      await user1Page.fill('input[name="password"]', "password123");
+      await user1Page.fill(
+        'input[placeholder="Jane Doe"]',
+        "Realtime Customer 1",
+      );
+      await user1Page.fill('input[placeholder="jane@example.com"]', u1Email);
+      await user1Page.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
       await user1Page.click('button[type="submit"]');
       await expect(user1Page).toHaveURL(/\/dashboard/);
 
-      await user1Page.goto(qrLink!);
+      await user1Page.goto(qrLink);
       await user1Page.fill('input[name="name"]', "Realtime Customer 1");
       await user1Page.click('button[type="submit"]');
 
@@ -50,7 +67,12 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       await expect(
         user1Page.locator("text=Hello, Realtime Customer 1!"),
       ).toBeVisible();
-      await expect(user1Page.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        user1Page.getByRole("heading", {
+          name: "It's your turn!",
+          exact: true,
+        }),
+      ).toBeVisible();
       await expect(
         user1Page.locator("text=Please proceed now to the counter."),
       ).toBeVisible();
@@ -60,13 +82,19 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       const u2Timestamp = Date.now() + 1;
       const u2Email = `rt-user2-${u2Timestamp}@example.com`;
       await user2Page.goto("/signup");
-      await user2Page.fill('input[name="name"]', "Realtime Customer 2");
-      await user2Page.fill('input[name="email"]', u2Email);
-      await user2Page.fill('input[name="password"]', "password123");
+      await user2Page.fill(
+        'input[placeholder="Jane Doe"]',
+        "Realtime Customer 2",
+      );
+      await user2Page.fill('input[placeholder="jane@example.com"]', u2Email);
+      await user2Page.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
       await user2Page.click('button[type="submit"]');
       await expect(user2Page).toHaveURL(/\/dashboard/);
 
-      await user2Page.goto(qrLink!);
+      await user2Page.goto(qrLink);
       await user2Page.fill('input[name="name"]', "Realtime Customer 2");
       await user2Page.click('button[type="submit"]');
 
@@ -74,7 +102,7 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       await expect(
         user2Page.locator("text=Hello, Realtime Customer 2!"),
       ).toBeVisible();
-      await expect(user2Page.locator("text=#2")).toBeVisible();
+      await expect(user2Page.getByText("#2", { exact: true })).toBeVisible();
       await expect(
         user2Page.locator("text=1 person ahead of you"),
       ).toBeVisible();
@@ -87,7 +115,12 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       await doneBtn.click();
 
       // User 2 should transition to "It's your turn!" in real time
-      await expect(user2Page.locator("text=It's your turn!")).toBeVisible({
+      await expect(
+        user2Page.getByRole("heading", {
+          name: "It's your turn!",
+          exact: true,
+        }),
+      ).toBeVisible({
         timeout: 10000,
       });
 
@@ -96,7 +129,12 @@ test.describe("Phase 3 — Real-Time Updates & Estimated Waiting Time (ETA)", ()
       await expect(
         user2Page.locator("text=Hello, Realtime Customer 2!"),
       ).toBeVisible();
-      await expect(user2Page.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        user2Page.getByRole("heading", {
+          name: "It's your turn!",
+          exact: true,
+        }),
+      ).toBeVisible();
       await expect(user2Page.locator("text=Live")).toBeVisible({
         timeout: 10000,
       });

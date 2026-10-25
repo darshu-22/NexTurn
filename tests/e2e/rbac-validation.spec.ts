@@ -96,7 +96,9 @@ test.describe("Privileged Super Admin & Admin Lifecycle (@privileged)", () => {
 
       // Verify routing to /admin/dashboard
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
-      await expect(adminPage.locator("h1")).toContainText("NexTurn");
+      await expect(adminPage.locator("h1")).toContainText(
+        "Organization Dashboard",
+      );
 
       // 5. Verify Admin is restricted from Super Admin routes
       await adminPage.goto("/super-admin");

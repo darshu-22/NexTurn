@@ -23,13 +23,23 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
       );
 
       const queueName = `FCFS Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
 
-      const qrLinkLocator = adminPage.locator("a.qr-link");
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
       await expect(qrLinkLocator).toBeVisible();
-      const qrLink = await qrLinkLocator.getAttribute("href");
-      expect(qrLink).toBeTruthy();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 2. User Context: Register as USER and Join Queue
       userContext = await browser.newContext();
@@ -47,12 +57,14 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
       await expect(userPage).toHaveURL(/\/dashboard/);
 
       // 3. User navigates to public queue page and joins
-      await userPage.goto(qrLink!);
+      await userPage.goto(qrLink);
       await expect(userPage.locator("h1")).toContainText(queueName);
       await userPage.click('button:has-text("Join Queue")');
 
       // 4. Assert Position #1 state
-      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "It's your turn!", exact: true }),
+      ).toBeVisible();
       await expect(userPage.locator("h1")).toContainText("Hello, FCFS User!");
       await expect(
         userPage.locator("text=Please proceed now to the counter."),
@@ -60,7 +72,9 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
 
       // 5. User marks service completed
       await userPage.click('button:has-text("Mark Completed")');
-      await expect(userPage.locator("text=Service Completed")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "Service Completed", level: 3 }),
+      ).toBeVisible();
       await expect(
         userPage.locator("text=Thank you for waiting!"),
       ).toBeVisible();
@@ -86,13 +100,23 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
       const queueName = `Leave Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
 
-      const qrLinkLocator = adminPage.locator("a.qr-link");
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
       await expect(qrLinkLocator).toBeVisible();
-      const qrLink = await qrLinkLocator.getAttribute("href");
-      expect(qrLink).toBeTruthy();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 2. User Context: Register as USER and Join Queue
       userContext = await browser.newContext();
@@ -110,11 +134,13 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
       await expect(userPage).toHaveURL(/\/dashboard/);
 
       // 3. User navigates to public queue page and joins
-      await userPage.goto(qrLink!);
+      await userPage.goto(qrLink);
       await expect(userPage.locator("h1")).toContainText(queueName);
       await userPage.click('button:has-text("Join Queue")');
 
-      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "It's your turn!", exact: true }),
+      ).toBeVisible();
 
       // 4. Trigger Leave Confirmation Modal
       await userPage.click('button:has-text("Leave Queue")');
@@ -130,7 +156,9 @@ test.describe("Phase 2 — Queue Management End-to-End Flows", () => {
       await expect(
         userPage.locator("text=Leave Queue Confirmation"),
       ).not.toBeVisible();
-      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "It's your turn!", exact: true }),
+      ).toBeVisible();
 
       // 6. Trigger Modal again and Confirm Leave
       await userPage.click('button:has-text("Leave Queue")');

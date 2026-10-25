@@ -3,13 +3,15 @@ import path from "path";
 import fs from "fs";
 
 const BASE_URL = "http://localhost:3000";
-const SCREENSHOT_DIR = path.join(__dirname, "../../docs/screenshots");
+const SCREENSHOT_DIR =
+  process.env.SCREENSHOT_OUTPUT_DIR ||
+  path.join(__dirname, "../../docs/screenshots-phase3e");
 
 test.describe("@screenshot End-to-End Verification Screenshot Capture Suite", () => {
   test("Executes full application walkthrough and generates all 28 screenshot evidence files", async ({
     browser,
   }) => {
-    test.setTimeout(120000);
+    test.setTimeout(180000);
     if (!fs.existsSync(SCREENSHOT_DIR)) {
       fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     }

@@ -19,29 +19,48 @@ test.describe("Phase 4 — Website-Only Realtime Notifications", () => {
       await expect(adminPage).toHaveURL(/\/admin\/dashboard/);
 
       const queueName = `Web Notification Queue ${Date.now()}`;
+      const queueCreatePromise = adminPage.waitForResponse(
+        (res) =>
+          res.url().includes("/api/queues") &&
+          res.request().method() === "POST" &&
+          res.status() === 201,
+      );
       await adminPage.fill('input[name="queueName"]', queueName);
       await adminPage.click('button:has-text("Create Queue")');
+      const createRes = await queueCreatePromise;
+      const createdData = await createRes.json();
+      const createdQueueId = createdData.id;
 
-      await expect(adminPage.locator("a.qr-link")).toBeVisible();
-      const qrLink = await adminPage.getAttribute("a.qr-link", "href");
-      expect(qrLink).toBeTruthy();
+      const qrLinkLocator = adminPage.locator(
+        `a.qr-link[href="/queue/${createdQueueId}"]`,
+      );
+      await expect(qrLinkLocator).toBeVisible();
+      const qrLink = `/queue/${createdQueueId}`;
 
       // 2. User registers and joins
       const userEmail = `webnotif-user-${Date.now()}@example.com`;
       await userPage.goto("/signup");
-      await userPage.fill('input[name="name"]', "Darshan Customer");
-      await userPage.fill('input[name="email"]', userEmail);
-      await userPage.fill('input[name="password"]', "password123");
+      await userPage.fill('input[placeholder="Jane Doe"]', "Darshan Customer");
+      await userPage.fill('input[placeholder="jane@example.com"]', userEmail);
+      await userPage.fill(
+        'input[placeholder="At least 6 characters"]',
+        "password123",
+      );
       await userPage.click('button[type="submit"]');
       await expect(userPage).toHaveURL(/\/dashboard/);
 
-      await userPage.goto(qrLink!);
+      await userPage.goto(qrLink);
       await userPage.fill('input[name="name"]', "Darshan Customer");
       await userPage.fill('input[name="phone"]', "+919876543210");
       await userPage.click('button:has-text("Join Queue")');
 
       // 3. Verify website notification toast and prominent turn alert
-      await expect(userPage.locator("text=It's your turn!")).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "🎉 It's your turn!" }),
+      ).toBeVisible();
+      await expect(
+        userPage.getByRole("heading", { name: "It's your turn!", exact: true }),
+      ).toBeVisible();
       await expect(
         userPage.locator("text=Please proceed now to the counter."),
       ).toBeVisible();
