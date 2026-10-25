@@ -42,7 +42,12 @@ jest.mock("@prisma/client", () => {
 
 import express from "express";
 import request from "supertest";
-import app, { validateTrustProxyHops, TRUST_PROXY_HOPS } from "../src/index";
+import app, {
+  validateTrustProxyHops,
+  TRUST_PROXY_HOPS,
+  isVerifiedLocalTestEnvironment,
+  extractDatabaseName,
+} from "../src/index";
 
 /**
  * ARCHITECTURE TESTING BOUNDARY & SCOPE DECLARATION:
@@ -282,6 +287,163 @@ describe("Server Infrastructure & Hardening Regression Tests", () => {
       expect(res.status).toBe(400);
       // Valid JSON with schema invalidity must NOT return "Malformed JSON payload"
       expect(res.body.error).not.toBe("Bad Request: Malformed JSON payload");
+    });
+  });
+
+  describe("ISSUE 3: Local Test Environment Rate-Limit Configuration Invariants", () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it("RATE-01: Rejects when NODE_ENV is production even if other flags are set", () => {
+      process.env.NODE_ENV = "production";
+      process.env.E2E_TEST_MODE = "true";
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-02: Rejects when E2E_TEST_MODE is not 'true'", () => {
+      process.env.NODE_ENV = "test";
+      delete process.env.E2E_TEST_MODE;
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.E2E_TEST_MODE = "false";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-03: Rejects when DATABASE_URL points to a remote host (e.g. Supabase)", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+      process.env.DATABASE_URL =
+        "postgresql://user:pass@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-04: Rejects when DATABASE_URL does not target nexturn_test", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+      process.env.DATABASE_URL =
+        "postgresql://postgres:pass@127.0.0.1:5432/production_db";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-05: Rejects when DATABASE_URL is missing or malformed", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+      delete process.env.DATABASE_URL;
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL = "not-a-valid-url";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-06: Accepts only when NODE_ENV != production, E2E_TEST_MODE == true, and DB is local nexturn_test", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(true);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@localhost:5432/nexturn_test?schema=public";
+      expect(isVerifiedLocalTestEnvironment()).toBe(true);
+    });
+
+    it("RATE-07: Rejects derivative database names on local host", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test_dev";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test_production";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/my_nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-08: Rejects URLs with empty database names or subpath traversals", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn_test/extra";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-09: Rejects malformed percent-encoding safely without throwing", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn%E0%A4%A";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn%";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("RATE-10: Accepts exact percent-encoded database name and deliberate IPv6 loopback", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1:5432/nexturn%5Ftest";
+      expect(isVerifiedLocalTestEnvironment()).toBe(true);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@[::1]:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(true);
+    });
+
+    it("RATE-11: Rejects non-loopback external IPv6 addresses and spoofed domain names", () => {
+      process.env.NODE_ENV = "test";
+      process.env.E2E_TEST_MODE = "true";
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@[2001:db8::1]:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@127.0.0.1.nip.io:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+
+      process.env.DATABASE_URL =
+        "postgresql://postgres:password@localhost.example.com:5432/nexturn_test";
+      expect(isVerifiedLocalTestEnvironment()).toBe(false);
+    });
+
+    it("extractDatabaseName unit tests: safely extracts, decodes, and fails closed", () => {
+      expect(
+        extractDatabaseName(new URL("postgresql://127.0.0.1/nexturn_test")),
+      ).toBe("nexturn_test");
+      expect(
+        extractDatabaseName(new URL("postgresql://127.0.0.1/nexturn%5Ftest")),
+      ).toBe("nexturn_test");
+      expect(
+        extractDatabaseName(new URL("postgresql://127.0.0.1/")),
+      ).toBeNull();
+      expect(
+        extractDatabaseName(new URL("postgresql://127.0.0.1/a/b")),
+      ).toBeNull();
     });
   });
 });

@@ -196,9 +196,55 @@ app.use(cors());
 app.use(helmet());
 
 // Rate Limiting: Keyed by validated client IP via single-hop trusted proxy
+/**
+ * Evaluates whether the environment is verified as an isolated local E2E test.
+ *
+ * SAFETY INVARIANTS:
+ * 1. Must never return true in production (process.env.NODE_ENV === "production").
+ * 2. Requires explicit opt-in via process.env.E2E_TEST_MODE === "true".
+ * 3. Never trusts NODE_ENV alone; must verify DATABASE_URL is strictly local loopback
+ *    (127.0.0.1, localhost, or [::1]) AND targets exactly the isolated test database (nexturn_test).
+ * 4. Fails safely to false on any parsing, invalid encoding, or validation error.
+ */
+export function extractDatabaseName(url: URL): string | null {
+  const cleanPath = url.pathname.replace(/^\/+/, "");
+  if (!cleanPath || cleanPath.includes("/")) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(cleanPath);
+  } catch {
+    return null;
+  }
+}
+
+export function isVerifiedLocalTestEnvironment(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.E2E_TEST_MODE !== "true") return false;
+
+  const dbUrl = process.env.DATABASE_URL || "";
+  if (!dbUrl) return false;
+
+  try {
+    const parsed = new URL(dbUrl);
+    const isLoopback =
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "[::1]";
+
+    if (!isLoopback) return false;
+
+    const dbName = extractDatabaseName(parsed);
+    return dbName === "nexturn_test";
+  } catch {
+    return false;
+  }
+}
+
+const isLocalTest = isVerifiedLocalTestEnvironment();
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: isLocalTest ? 10000 : 100,
   standardHeaders: true, // Return draft-6 `RateLimit-*` headers
   legacyHeaders: false, // Disable legacy `X-RateLimit-*` headers
   message: { error: "Too many requests, please try again later." },
