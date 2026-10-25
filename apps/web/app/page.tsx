@@ -22,7 +22,20 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-900 text-slate-100">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-slate-100 p-4">
+      <noscript>
+        <meta httpEquiv="refresh" content="0; url=/login" />
+        <div className="text-center space-y-4 mb-4">
+          <h1 className="text-2xl font-bold">NexTurn</h1>
+          <p className="text-slate-400">
+            Please enable JavaScript or{" "}
+            <a href="/login" className="text-blue-400 underline">
+              click here to sign in
+            </a>
+            .
+          </p>
+        </div>
+      </noscript>
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
     </div>
   );
